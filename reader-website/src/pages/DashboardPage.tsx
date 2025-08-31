@@ -2,7 +2,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { useDashboard } from '../hooks/UseDashboard';
+import { useDashboard } from '../hooks/useDashboard';
 import { DollarSign, Star, BookOpen, Users, ChevronRight, Zap, TrendingUp, Award, Clock, Lock, RefreshCw, AlertCircle } from 'lucide-react';
 
 const DashboardPage: React.FC = () => {
