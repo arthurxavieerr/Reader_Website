@@ -270,7 +270,7 @@ const LandingPage: React.FC = () => {
 
       <style>{`
         .logo-img {
-        width: 150px;   /* ajuste conforme necessário */
+        width: 100px;   /* ajuste conforme necessário */
         height: auto;  /* mantém proporção */
         }
 
