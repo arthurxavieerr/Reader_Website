@@ -164,6 +164,7 @@ const BookDetailPage: React.FC = () => {
             <button 
               className={`favorite-button ${isFavorited ? 'favorited' : ''}`}
               onClick={toggleFavorite}
+              aria-label={isFavorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
             >
               <Heart size={18} fill={isFavorited ? 'currentColor' : 'none'} />
             </button>
@@ -736,6 +737,7 @@ const mainStyles = `
   .reward-label {
     font-size: 14px;
     opacity: 0.9;
+    color: #e0e7ff;
   }
   
   .bonus-info {

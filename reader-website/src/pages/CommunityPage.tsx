@@ -60,7 +60,7 @@ const CommunityPage: React.FC = () => {
             <h1 className="page-title">Comunidade</h1>
             <p className="page-subtitle">Compartilhe suas experiências</p>
           </div>
-          <button className="refresh-button">
+          <button className="refresh-button" aria-label="Recarregar">
             <RefreshCw size={20} />
           </button>
         </div>
@@ -124,7 +124,7 @@ const CommunityPage: React.FC = () => {
                     <span>{post.comments} resposta{post.comments !== 1 ? 's' : ''}</span>
                   </button>
                   
-                  <button className="action-button">
+                  <button className="action-button" aria-label="Compartilhar">
                     <Share size={16} />
                   </button>
                 </div>

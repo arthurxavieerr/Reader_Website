@@ -12,7 +12,7 @@ const toPublicUser = (user: any): PublicUser => {
   if (!user) {
     throw new Error('Usuário não encontrado');
   }
-  
+
   return {
     id: user.id,
     name: user.name,
@@ -41,7 +41,7 @@ const generateToken = (userId: string, email: string, isAdmin: boolean) => {
 };
 
 // REGISTER - Cadastro de novo usuário
-export const register = async (req: Request, res: Response) => {
+export const register = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { name, email, phone, password }: RegisterData = req.body;
 
@@ -101,7 +101,7 @@ export const register = async (req: Request, res: Response) => {
     // Retornar usuário público (igual ao frontend espera)
     const publicUser = toPublicUser(newUser);
     
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       data: {
         user: publicUser,
@@ -111,7 +111,7 @@ export const register = async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('Erro no registro:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Erro interno do servidor'
     });
@@ -119,7 +119,7 @@ export const register = async (req: Request, res: Response) => {
 };
 
 // LOGIN - Autenticação de usuário
-export const login = async (req: Request, res: Response) => {
+export const login = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { email, password } = req.body;
 
@@ -183,7 +183,7 @@ export const login = async (req: Request, res: Response) => {
     // Retornar usuário público
     const publicUser = toPublicUser(user);
     
-    res.json({
+    return res.json({
       success: true,
       data: {
         user: publicUser,
@@ -193,7 +193,7 @@ export const login = async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('Erro no login:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Erro interno do servidor'
     });
@@ -201,7 +201,7 @@ export const login = async (req: Request, res: Response) => {
 };
 
 // COMPLETE ONBOARDING - Finalizar cadastro
-export const completeOnboarding = async (req: Request, res: Response) => {
+export const completeOnboarding = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { commitment, incomeRange }: OnboardingData = req.body;
     const userId = (req as any).user?.id;
@@ -251,14 +251,14 @@ export const completeOnboarding = async (req: Request, res: Response) => {
 
     const publicUser = toPublicUser(updatedUser);
     
-    res.json({
+    return res.json({
       success: true,
       data: { user: publicUser }
     });
 
   } catch (error) {
     logger.error('Erro no onboarding:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Erro interno do servidor'
     });
@@ -266,7 +266,7 @@ export const completeOnboarding = async (req: Request, res: Response) => {
 };
 
 // GET ME - Obter dados do usuário atual
-export const getMe = async (req: Request, res: Response) => {
+export const getMe = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = (req as any).user?.id;
 
@@ -290,14 +290,14 @@ export const getMe = async (req: Request, res: Response) => {
 
     const publicUser = toPublicUser(user);
     
-    res.json({
+    return res.json({
       success: true,
       data: { user: publicUser }
     });
 
   } catch (error) {
     logger.error('Erro ao buscar usuário:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Erro interno do servidor'
     });
