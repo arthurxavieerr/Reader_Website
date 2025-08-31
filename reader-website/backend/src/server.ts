@@ -26,7 +26,7 @@ const PORT = process.env.PORT || 3001;
 // Configurar Socket.io para tracking em tempo real
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",  // Substitua com o seu frontend URL
+    origin: process.env.FRONTEND_URL || "http://localhost:5173",  // Permite o domínio do frontend
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -43,7 +43,7 @@ app.use(helmet({
 
 // CORS - permitir requests do frontend
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:3000", // Permite o domínio do frontend
+  origin: process.env.FRONTEND_URL || "http://localhost:5173", // Permite o domínio do frontend
   credentials: true, // Permite cookies e credenciais em requests
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization']
