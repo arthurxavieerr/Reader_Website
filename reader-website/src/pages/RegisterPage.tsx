@@ -220,24 +220,6 @@ const RegisterPage: React.FC = () => {
                 )}
               </div>
 
-              <div className="benefits-section">
-                <h3 className="benefits-title">O que você ganha:</h3>
-                <div className="benefits-list">
-                  <div className="benefit-item">
-                    <Check size={16} />
-                    <span>R$ 1,00 a R$ 9,00 por livro lido</span>
-                  </div>
-                  <div className="benefit-item">
-                    <Check size={16} />
-                    <span>Saque via PIX a partir de R$ 50</span>
-                  </div>
-                  <div className="benefit-item">
-                    <Check size={16} />
-                    <span>Acesso a livros exclusivos</span>
-                  </div>
-                </div>
-              </div>
-
               <button 
                 type="submit" 
                 className={`submit-button ${loading ? 'loading' : ''}`}
