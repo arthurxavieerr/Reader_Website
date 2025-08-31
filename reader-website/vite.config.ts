@@ -17,7 +17,7 @@ export default defineConfig({
         manualChunks: {
           vendor: ['react', 'react-dom'],
           router: ['react-router-dom'],
-          icons: ['lucide-react']
+          icons: ['lucide-react'],
         }
       }
     }
@@ -29,5 +29,6 @@ export default defineConfig({
   preview: {
     port: 5173,
     host: true
-  }
+  },
+  base: '/',  // Adicionar a configuração base
 })
