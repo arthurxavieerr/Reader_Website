@@ -219,7 +219,6 @@ const RegisterPage: React.FC = () => {
                   <span className="field-error">{fieldErrors.password}</span>
                 )}
               </div>
-
               <button 
                 type="submit" 
                 className={`submit-button ${loading ? 'loading' : ''}`}
@@ -235,7 +234,6 @@ const RegisterPage: React.FC = () => {
                 )}
               </button>
             </form>
-
             <div className="form-footer">
               <p className="footer-text">
                 Já tem uma conta?{' '}
