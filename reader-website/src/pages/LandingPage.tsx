@@ -263,7 +263,7 @@ const LandingPage: React.FC = () => {
           </div>
           
           <div className="footer-bottom">
-            <p>&copy; 2024 BETA REVIEW. Todos os direitos reservados.</p>
+            <p>&copy; 2025 BETA REVIEW. Todos os direitos reservados.</p>
           </div>
         </div>
       </footer>
