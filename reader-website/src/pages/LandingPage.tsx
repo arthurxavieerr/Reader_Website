@@ -3,7 +3,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle, Users, BookOpen, DollarSign, Star, ChevronRight } from 'lucide-react';
 import cadastroIcon from '../assets/icons/cadastro.png';
-import livroIcon from '../assets/icons/Livro.png';
+import livroIcon from '../assets/icons/livro.png';
 import estrelaIcon from '../assets/icons/estrela.png';
 import dinheiroIcon from '../assets/icons/dinheiro.png';
 import fundo from '../assets/fundo.png';
