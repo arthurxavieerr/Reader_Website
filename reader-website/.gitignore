@@ -12,6 +12,19 @@ dist
 dist-ssr
 *.local
 
+# Environment variables - IMPORTANTE!
+.env
+.env.*
+!.env.example
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Prisma
+prisma/migrations/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,4 +35,20 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Vercel
 .vercel
+
+# Build outputs
+build/
+out/
+
+# Cache directories
+.cache/
+.parcel-cache/
+.next/
+
+# OS generated files
+Thumbs.db
+*.tmp
+*.temp
