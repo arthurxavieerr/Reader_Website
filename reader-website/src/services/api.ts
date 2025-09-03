@@ -1,12 +1,10 @@
 // src/services/api.ts
 import { ApiResponse } from '../types';
 
-// CORREÇÃO: Usar /api em produção, localhost em desenvolvimento
-const API_BASE_URL = import.meta.env.VITE_API_URL || (
-  import.meta.env.DEV ? 'http://localhost:3001/api' : '/api'
-);
+// FORÇA usar /api em produção
+const API_BASE_URL = '/api';
 
-console.log('🔧 API_BASE_URL:', API_BASE_URL); // Debug log
+console.log('🔧 API_BASE_URL:', API_BASE_URL);
 
 class ApiService {
   private getAuthHeaders(): HeadersInit {
@@ -36,7 +34,7 @@ class ApiService {
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
     const fullUrl = `${API_BASE_URL}${endpoint}`;
-    console.log('🌐 Fazendo requisição para:', fullUrl); // Debug log
+    console.log('🌐 Fazendo requisição para:', fullUrl);
     
     try {
       const response = await fetch(fullUrl, {
@@ -49,7 +47,7 @@ class ApiService {
 
       return await this.handleResponse<T>(response);
     } catch (error: any) {
-      console.error('❌ Erro na API:', error); // Debug log
+      console.error('❌ Erro na API:', error);
       
       // Se for rate limit ou erro de rede, propagar o erro para usar fallback
       if (error.message.includes('Rate limit') || 
