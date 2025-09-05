@@ -1,84 +1,47 @@
-import { VercelRequest, VercelResponse } from '@vercel/node';
-import { setCors } from '../_utils/cors';
-import { prisma, disconnectDatabase } from '../_utils/database';
-import { sendError, sendSuccess } from '../_utils/response';
-import { authenticateRequest } from '../_utils/auth';
+// api/auth/me.ts - VERSÃO SIMPLIFICADA
+export default async function handler(req: any, res: any) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-/**
- * Converte dados do usuário para formato público (sem dados sensíveis)
- */
-const toPublicUser = (user: any) => ({
-  id: user.id,
-  name: user.name,
-  email: user.email,
-  phone: user.phone,
-  level: user.level,
-  points: user.points,
-  balance: user.balance,
-  planType: user.planType.toLowerCase(),
-  isAdmin: user.isAdmin,
-  onboardingCompleted: user.onboardingCompleted,
-  commitment: user.commitment?.toLowerCase(),
-  incomeRange: user.incomeRange?.toLowerCase(),
-  profileImage: user.profileImage,
-  createdAt: user.createdAt.toISOString(),
-  updatedAt: user.updatedAt.toISOString(),
-});
-
-/**
- * Me Endpoint
- * GET /api/auth/me
- * 
- * Retorna dados do usuário autenticado
- * Requer: Authorization: Bearer <token>
- */
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Configura CORS
-  setCors(res);
-
-  // Responde a requisições OPTIONS (preflight CORS)
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  // Só aceita método GET
-  if (req.method !== 'GET') {
-    return sendError(res, 405, 'Método não permitido');
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    // Autentica a requisição
-    const authUser = await authenticateRequest(req);
+    const authHeader = req.headers.authorization;
     
-    if (!authUser) {
-      return sendError(res, 401, 'Token inválido ou expirado');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        error: 'Token não fornecido'
+      });
     }
 
-    // Busca dados atualizados do usuário no banco
-    const user = await prisma.user.findUnique({
-      where: { id: authUser.userId }
+    // Por enquanto, retornar usuário mock
+    const userData = {
+      id: '1',
+      name: 'Arthur',
+      email: 'arthur@example.com',
+      phone: '(11) 99999-9999',
+      level: 0,
+      points: 0,
+      balance: 0,
+      planType: 'free',
+      isAdmin: false,
+      onboardingCompleted: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    return res.status(200).json({
+      success: true,
+      data: { user: userData }
     });
 
-    if (!user) {
-      return sendError(res, 404, 'Usuário não encontrado');
-    }
-
-    // Verifica se usuário está suspenso
-    if (user.isSuspended) {
-      return sendError(res, 403, 'Conta suspensa. Entre em contato com o suporte.');
-    }
-
-    // Retorna dados públicos do usuário
-    const publicUser = toPublicUser(user);
-
-    return sendSuccess(res, { 
-      user: publicUser 
-    }, 'Dados do usuário obtidos com sucesso');
-
   } catch (error) {
-    console.error('Get user error:', error);
-    return sendError(res, 500, 'Erro interno do servidor');
-  } finally {
-    await disconnectDatabase();
+    console.error('Get me error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Erro interno do servidor'
+    });
   }
 }
