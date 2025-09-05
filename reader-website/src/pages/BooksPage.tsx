@@ -457,7 +457,7 @@ const errorStyles = `
 const getStyles = () => `
   .books-page {
     min-height: 100vh;
-    background: #fef9f6;
+    background: #white;
     padding: 20px 0 100px;
   }
 
