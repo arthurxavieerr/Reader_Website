@@ -468,7 +468,8 @@ const getStyles = () => `
   }
 
   .page-header {
-    background: #7c3aed;
+    background: #white;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
     backdrop-filter: blur(10px);
     border-radius: 16px;
     padding: 32px;
@@ -491,11 +492,13 @@ const getStyles = () => `
     font-size: 2.5rem;
     font-weight: 700;
     margin-bottom: 8px;
+    color: #1e293b;
   }
 
   .header-content-books p {
     color: rgba(255, 255, 255, 0.8);
     font-size: 1.1rem;
+    color: #1e293b;
   }
 
   .user-level-card {
@@ -581,13 +584,13 @@ const getStyles = () => `
   }
 
   .section-header h2 {
-    color: #111;
+    color: #1e293b;
     font-size: 1.8rem;
     font-weight: 600;
   }
 
   .count {
-    color: #111;
+    color: #1e293b;
     font-size: 1rem;
   }
 
