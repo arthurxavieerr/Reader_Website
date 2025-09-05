@@ -11,6 +11,36 @@ const prisma = new PrismaClient();
 app.use(cors());
 app.use(express.json());
 
+// Rota de teste - adicionar logo após app.use(express.json())
+app.get('/api/test', async (req, res) => {
+  try {
+    console.log('=== TESTE DE DIAGNÓSTICO ===');
+    console.log('NODE_ENV:', process.env.NODE_ENV);
+    console.log('DATABASE_URL existe:', !!process.env.DATABASE_URL);
+    console.log('DATABASE_URL length:', process.env.DATABASE_URL?.length);
+    console.log('JWT_SECRET existe:', !!process.env.JWT_SECRET);
+    
+    // Teste básico
+    res.json({ 
+      success: true, 
+      message: 'Server funcionando!',
+      environment: {
+        nodeEnv: process.env.NODE_ENV,
+        hasDatabaseUrl: !!process.env.DATABASE_URL,
+        hasJwtSecret: !!process.env.JWT_SECRET,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Erro no teste:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      stack: error.stack 
+    });
+  }
+});
+
 // Funções utilitárias
 function generateToken(userId, email, isAdmin) {
   return jwt.sign(
