@@ -492,13 +492,13 @@ const getStyles = () => `
     font-size: 2.5rem;
     font-weight: 700;
     margin-bottom: 8px;
-    color: #1e293b;
+    color: #fff;
   }
 
   .header-content-books p {
     color: rgba(255, 255, 255, 0.8);
     font-size: 1.1rem;
-    color: #1e293b;
+    color: #fff;
   }
 
   .user-level-card {
