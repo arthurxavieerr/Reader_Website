@@ -1,107 +1,78 @@
-// api/auth/login.ts
-import { VercelRequest, VercelResponse } from '@vercel/node';
-import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
-import { generateToken } from '../_utils/auth';
-import { sendError, sendSuccess } from '../_utils/response';
-import { setCors } from '../_utils/cors';
+// api/auth/login.ts - VERSÃO SIMPLIFICADA
+export default async function handler(req: any, res: any) {
+  // CORS simples
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-const prisma = new PrismaClient();
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Configurar CORS
-  setCors(res);
-  
-  // Responder a requisições OPTIONS (preflight)
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  // Apenas POST permitido
   if (req.method !== 'POST') {
-    return sendError(res, 405, 'Método não permitido');
+    return res.status(405).json({ 
+      success: false, 
+      error: 'Method not allowed' 
+    });
   }
 
   try {
     const { email, password } = req.body;
 
-    // Validação dos dados
     if (!email || !password) {
-      return sendError(res, 400, 'Email e senha são obrigatórios');
+      return res.status(400).json({
+        success: false,
+        error: 'Email e senha são obrigatórios'
+      });
     }
 
-    // Buscar usuário no banco
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
+    // Credenciais de teste
+    const validCredentials = [
+      { email: 'arthur@example.com', password: 'password', isAdmin: false },
+      { email: 'admin@betareader.com', password: 'admin123', isAdmin: true }
+    ];
 
-    if (!user) {
-      return sendError(res, 401, 'Email ou senha inválidos');
+    const validUser = validCredentials.find(
+      u => u.email === email && u.password === password
+    );
+
+    if (!validUser) {
+      return res.status(401).json({
+        success: false,
+        error: 'Email ou senha inválidos'
+      });
     }
 
-    // Verificar se conta está suspensa
-    if (user.isSuspended) {
-      return sendError(res, 403, `Conta suspensa: ${user.suspendedReason || 'Violação dos termos de uso'}`);
-    }
+    // Dados do usuário de teste
+    const userData = {
+      id: validUser.isAdmin ? '2' : '1',
+      name: validUser.isAdmin ? 'Admin' : 'Arthur',
+      email: validUser.email,
+      phone: '(11) 99999-9999',
+      level: validUser.isAdmin ? 99 : 0,
+      points: validUser.isAdmin ? 10000 : 0,
+      balance: validUser.isAdmin ? 100000 : 0,
+      planType: validUser.isAdmin ? 'premium' : 'free',
+      isAdmin: validUser.isAdmin,
+      onboardingCompleted: validUser.isAdmin,
+      createdAt: new Date().toISOString(),
+    };
 
-    // Verificar se o usuário tem senha cadastrada
-    if (!user.passwordHash) {
-      return sendError(res, 401, 'Email ou senha inválidos');
-    }
+    const token = `test-token-${userData.id}-${Date.now()}`;
 
-    // Verificar senha
-    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
-    
-    if (!isValidPassword) {
-      return sendError(res, 401, 'Email ou senha inválidos');
-    }
-
-    // Atualizar último login
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        lastLoginAt: new Date(),
-        lastLoginIP: getClientIP(req)
+    return res.status(200).json({
+      success: true,
+      data: { 
+        user: userData, 
+        token 
       }
     });
 
-    // Gerar token JWT
-    const token = generateToken(user.id, user.email, user.isAdmin);
-
-    // Dados públicos do usuário (sem senha)
-    const publicUser = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      level: user.level,
-      points: user.points,
-      balance: user.balance,
-      planType: user.planType.toLowerCase(),
-      isAdmin: user.isAdmin,
-      onboardingCompleted: user.onboardingCompleted,
-      commitment: user.commitment?.toLowerCase(),
-      incomeRange: user.incomeRange?.toLowerCase(),
-      profileImage: user.profileImage,
-      isSuspended: user.isSuspended,
-      suspendedReason: user.suspendedReason,
-      createdAt: user.createdAt.toISOString(),
-      lastLoginAt: user.lastLoginAt?.toISOString(),
-    };
-
-    return sendSuccess(res, { user: publicUser, token });
-
   } catch (error) {
     console.error('Login error:', error);
-    return sendError(res, 500, 'Erro interno do servidor');
-  } finally {
-    await prisma.$disconnect();
+    return res.status(500).json({
+      success: false,
+      error: 'Erro interno do servidor'
+    });
   }
-}
-
-// Função para obter IP do cliente
-function getClientIP(req: VercelRequest): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  const ip = forwarded ? (typeof forwarded === 'string' ? forwarded.split(',')[0] : forwarded[0]) : req.socket?.remoteAddress;
-  return ip || 'unknown';
 }
