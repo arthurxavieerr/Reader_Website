@@ -316,11 +316,11 @@ const BooksPage: React.FC = () => {
                   </div>
                   
                   <div className="book-actions">
-                    <Link to={`/book-reading/${book.id}`} className="btn-primary">
+                    <Link to={`/books/${book.id}/read`} className="btn-primary">
                       <BookOpen size={16} />
                       Ler Agora
                     </Link>
-                    <Link to={`/book-detail/${book.id}`} className="btn-secondary">
+                    <Link to={`/books/${book.id}`} className="btn-secondary">
                       Ver Detalhes
                     </Link>
                   </div>
