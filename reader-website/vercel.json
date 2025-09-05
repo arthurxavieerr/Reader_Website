@@ -9,6 +9,10 @@
     {
       "src": "api/auth/*.ts",
       "use": "@vercel/node"
+    },
+    {
+      "src": "api/books/*.ts",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
