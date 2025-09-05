@@ -468,7 +468,7 @@ const getStyles = () => `
   }
 
   .page-header {
-    background: rgba(255, 255, 255, 0.1);
+    background: #7c3aed;
     backdrop-filter: blur(10px);
     border-radius: 16px;
     padding: 32px;
@@ -484,7 +484,6 @@ const getStyles = () => `
     flex-direction: column;
     margin: 0;
     align-items: flex-start;
-    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
   }
 
   .header-content-books h1 {
