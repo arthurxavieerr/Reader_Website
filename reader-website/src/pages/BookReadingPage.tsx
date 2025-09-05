@@ -22,9 +22,6 @@ interface Review {
   donationAmount?: number;
 }
 
-// Configuração da API
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-
 const BookReadingPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -133,113 +130,87 @@ const BookReadingPage: React.FC = () => {
       try {
         console.log('Buscando dados do livro:', id);
         
-        const token = localStorage.getItem('token');
-        
-        if (!token) {
-          alert('Sessão expirada. Redirecionando para login...');
-          navigate('/login');
-          return;
-        }
-        
-        // 1. Buscar informações básicas do livro
-        const bookResponse = await fetch(`${API_BASE_URL}/books/${id}`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
+        // Mock data para informações do livro
+        const mockBooks: Record<string, any> = {
+          '1': { 
+            id: '1',
+            title: 'A Caixa de Pandora', 
+            author: 'Hesíodo', 
+            genre: 'Mitologia grega',
+            rewardMoney: 10, // R$ 10,00
+            synopsis: 'Descubra o conto mitológico de Pandora...',
+            reviewsCount: 84288,
+            averageRating: 4.5,
+            estimatedReadTime: '7 min'
           },
-        });
-
-        if (!bookResponse.ok) {
-          const errorText = await bookResponse.text();
-          
-          if (bookResponse.status === 404) {
-            throw new Error('Livro não encontrado');
-          }
-          if (bookResponse.status === 401) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('beta-reader-user');
-            alert('Sessão expirada. Redirecionando para login...');
-            navigate('/login');
-            return;
-          }
-          throw new Error(`Erro ao carregar livro: ${bookResponse.status} - ${errorText}`);
-        }
-
-        const bookData = await bookResponse.json();
-        const bookInfo = bookData.data?.book || bookData.book || bookData;
-        setBook(bookInfo);
-
-        // 2. Iniciar leitura
-        const startReadingResponse = await fetch(`${API_BASE_URL}/books/${id}/start-reading`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
+          '2': { 
+            id: '2',
+            title: 'O Príncipe e a Gata', 
+            author: 'Charles Perrault', 
+            genre: 'Conto de fadas',
+            rewardMoney: 20, // R$ 20,00
+            synopsis: 'Era uma vez um rei...',
+            reviewsCount: 12947,
+            averageRating: 4.3,
+            estimatedReadTime: '8 min'
           },
-        });
-
-        let currentSessionId = null;
-        if (startReadingResponse.ok) {
-          const startData = await startReadingResponse.json();
-          if (startData.success && startData.data?.sessionId) {
-            currentSessionId = startData.data.sessionId;
-            setSessionId(currentSessionId);
-          }
-        }
-
-        // 3. Buscar conteúdo do livro
-        const contentResponse = await fetch(`${API_BASE_URL}/books/${id}/content`, {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
+          '3': { 
+            id: '3',
+            title: 'O Banqueiro Anarquista', 
+            author: 'Fernando Pessoa', 
+            genre: 'Ensaio filosófico',
+            rewardMoney: 30, // R$ 30,00
+            synopsis: 'Ensaio filosófico em forma de diálogo...',
+            reviewsCount: 11698,
+            averageRating: 4.7,
+            estimatedReadTime: '93 min'
           },
-        });
-
-        if (!contentResponse.ok) {
-          const errorText = await contentResponse.text();
-          if (contentResponse.status === 401) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('beta-reader-user');
-            alert('Sessão expirada. Redirecionando para login...');
-            navigate('/login');
-            return;
+          '4': { 
+            id: '4',
+            title: 'De Quanta Terra um Homem Precisa?', 
+            author: 'Liev Tolstói', 
+            genre: 'Literatura russa',
+            rewardMoney: 50, // R$ 50,00
+            synopsis: 'Um conto sobre ambição...',
+            reviewsCount: 8754,
+            averageRating: 4.6,
+            estimatedReadTime: '18 min'
           }
-          throw new Error(`Erro ao carregar conteúdo: ${contentResponse.status} - ${errorText}`);
+        };
+
+        const mockBook = mockBooks[id];
+        if (!mockBook) {
+          throw new Error('Livro não encontrado');
         }
 
-        const contentData = await contentResponse.json();
+        // Carregar conteúdo do arquivo .txt
+        const response = await fetch(`/books/${id}.txt`);
+        if (!response.ok) {
+          throw new Error('Conteúdo do livro não encontrado');
+        }
         
-        if (contentData.success && contentData.data && contentData.data.content) {
-          const content = contentData.data.content;
-          setBookContent(content);
-          
-          // Paginar o conteúdo
-          const paginatedContent = paginateContent(content);
-          console.log('Páginas criadas:', paginatedContent.length, 'caracteres por página:', paginatedContent.map(p => p.length));
-          setPages(paginatedContent);
-          
-          // Marcar primeira página como lida e iniciar timer
-          setReadPages(new Set([0]));
-          setCurrentPage(0);
-          setPageStartTime(Date.now());
-          setPageTimeRemaining(120);
-          setCanAdvancePage(false); // Primeira página também deve aguardar 2 minutos
-        } else {
-          throw new Error('Conteúdo não encontrado na resposta da API');
-        }
+        const content = await response.text();
+
+        // Configurar dados
+        setBook(mockBook);
+        setBookContent(content);
+        setSessionId(`mock-session-${id}-${Date.now()}`);
+
+        // Paginar conteúdo
+        const paginatedContent = paginateContent(content);
+        console.log('Páginas criadas:', paginatedContent.length, 'caracteres por página:', paginatedContent.map((p: string) => p.length));
+        setPages(paginatedContent);
+        
+        // Marcar primeira página como lida e iniciar timer
+        setReadPages(new Set([0]));
+        setCurrentPage(0);
+        setPageStartTime(Date.now());
+        setPageTimeRemaining(120);
+        setCanAdvancePage(false);
 
       } catch (err) {
-        console.error('Erro geral:', err);
-        if (err instanceof Error) {
-          if (err.message.includes('fetch') || err.message.includes('NetworkError')) {
-            setError('Erro de conexão - verifique se a API está rodando em http://localhost:3001');
-          } else {
-            setError(err.message);
-          }
-        } else {
-          setError('Erro desconhecido ao carregar livro');
-        }
+        console.error('Erro ao carregar livro:', err);
+        setError(err instanceof Error ? err.message : 'Erro desconhecido');
       } finally {
         setLoading(false);
       }
@@ -249,7 +220,7 @@ const BookReadingPage: React.FC = () => {
   }, [id, navigate]);
 
   const formatCurrency = (value: number) => {
-    return `R$ ${(value / 100).toFixed(2).replace('.', ',')}`;
+    return `R$ ${value.toFixed(2).replace('.', ',')}`;
   };
 
   const formatTime = (seconds: number) => {
@@ -317,69 +288,30 @@ const BookReadingPage: React.FC = () => {
   const handleSubmitReview = async () => {
     if (rating === 0 || !book || !id) return;
 
-    if (!sessionId) {
-      console.warn('SessionId não encontrado, usando modo fallback');
-    }
-
     setIsSubmitting(true);
 
     try {
-      const readingTime = Date.now() - readingStartTime;
+      // Simular delay de envio
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      // Simular resposta de sucesso
+      const rewardMessage = `Parabéns! Você ganhou ${formatCurrency(book.rewardMoney)} e 10 pontos XP!`;
+      alert(rewardMessage);
       
-      const reviewData = {
-        sessionId: sessionId || `fallback-${Date.now()}`,
-        readingTime,
-        rating,
-        comment: comment.trim() || undefined,
-        donationAmount: donationAmount ? parseInt(donationAmount) : undefined,
-      };
-
-      const token = localStorage.getItem('token');
-      if (!token) {
-        alert('Sessão expirada. Redirecionando para login...');
-        navigate('/login');
-        return;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/books/${id}/complete`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(reviewData),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { message: errorText };
-        }
-        throw new Error(errorData.error || errorData.message || `Erro ${response.status}: ${errorText}`);
-      }
-
-      const data = await response.json();
-      
-      if (data.success && data.data) {
-        const { earnedMoney, earnedPoints, message } = data.data;
-        const rewardMessage = earnedMoney > 0 
-          ? `${message}\nVocê ganhou ${formatCurrency(earnedMoney * 100)} e ${earnedPoints} pontos XP!`
-          : message || 'Avaliação enviada com sucesso!';
-          
-        alert(rewardMessage);
-      } else {
-        alert('Avaliação enviada com sucesso!');
+      // Atualizar saldo do usuário no localStorage
+      const userData = localStorage.getItem('beta-reader-user');
+      if (userData) {
+        const user = JSON.parse(userData);
+        user.balance += book.rewardMoney * 100; // Converter para centavos
+        user.points += 10;
+        localStorage.setItem('beta-reader-user', JSON.stringify(user));
       }
       
       navigate('/dashboard');
       
     } catch (err) {
       console.error('Erro ao completar leitura:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido ao finalizar leitura';
-      alert(`Erro: ${errorMessage}`);
+      alert('Erro ao finalizar leitura. Tente novamente.');
     } finally {
       setIsSubmitting(false);
     }
@@ -440,16 +372,12 @@ const BookReadingPage: React.FC = () => {
           <div className="error-message">
             {error || 'Livro não encontrado'}
           </div>
-          {error?.includes('Sessão expirada') ? (
-            <div className="loading-spinner"></div>
-          ) : (
-            <button 
-              className="retry-button"
-              onClick={() => navigate('/books')}
-            >
-              Voltar para Livros
-            </button>
-          )}
+          <button 
+            className="retry-button"
+            onClick={() => navigate('/books')}
+          >
+            Voltar para Livros
+          </button>
         </div>
       </div>
     );
@@ -527,7 +455,7 @@ const BookReadingPage: React.FC = () => {
               </div>
               <div className="stat-item">
                 <Award size={16} />
-                <span>{formatCurrency(book.rewardMoney * 100)} por avaliação</span>
+                <span>{formatCurrency(book.rewardMoney)} por avaliação</span>
               </div>
             </div>
           </div>
@@ -676,7 +604,7 @@ const BookReadingPage: React.FC = () => {
                   </div>
                   <div className="reward-item">
                     <span className="money-icon">💰</span>
-                    <span>+{formatCurrency(book.rewardMoney * 100)}</span>
+                    <span>+{formatCurrency(book.rewardMoney)}</span>
                   </div>
                 </div>
               </div>
@@ -805,7 +733,7 @@ const BookReadingPage: React.FC = () => {
                   <div className="reward-card">
                     <div className="reward-icon">💰</div>
                     <div className="reward-details">
-                      <span className="reward-value">+{formatCurrency(book.rewardMoney * 100)}</span>
+                      <span className="reward-value">+{formatCurrency(book.rewardMoney)}</span>
                       <span className="reward-label">Dinheiro</span>
                     </div>
                   </div>

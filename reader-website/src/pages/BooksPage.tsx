@@ -219,7 +219,7 @@ const BooksPage: React.FC = () => {
       <div className="container">
         {/* Header da página */}
         <div className="page-header">
-          <div className="header-content">
+          <div className="header-content-books">
             <h1>Biblioteca</h1>
             <p>Descubra, leia e ganhe dinheiro com os melhores livros</p>
           </div>
@@ -457,7 +457,7 @@ const errorStyles = `
 const getStyles = () => `
   .books-page {
     min-height: 100vh;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #ccc;
     padding: 20px 0 100px;
   }
 
@@ -479,14 +479,21 @@ const getStyles = () => `
     border: 1px solid rgba(255, 255, 255, 0.2);
   }
 
-  .header-content h1 {
+  .header-content-books {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    align-items: flex-start;
+  }
+
+  .header-content-books h1 {
     color: white;
     font-size: 2.5rem;
     font-weight: 700;
     margin-bottom: 8px;
   }
 
-  .header-content p {
+  .header-content-books p {
     color: rgba(255, 255, 255, 0.8);
     font-size: 1.1rem;
   }
