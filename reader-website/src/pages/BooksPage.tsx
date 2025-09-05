@@ -1,79 +1,137 @@
+// src/pages/BooksPage.tsx - VERSÃO CORRIGIDA SEM API
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { BookOpen, Users, Lock, Star, Crown, Award, Clock, Zap, TrendingUp } from 'lucide-react';
 import { LEVELS } from '../types';
 
-// Tipos para a API
-interface BookFromAPI {
-  id: string;
-  title: string;
-  author: string;
-  genre: string;
-  synopsis: string;
-  coverImage?: string;
-  rewardMoney: number;
-  rewardPoints: number;
-  reviewsCount: number;
-  averageRating: number;
-  estimatedReadTime: number; // em minutos
-  difficulty: string;
-  isAvailable: boolean;
-  requiredLevel: number;
-  hasReceivedReward: boolean;
-  createdAt: string;
-}
-
-interface BooksAPIResponse {
-  success: boolean;
-  data: {
-    available: BookFromAPI[];
-    locked: BookFromAPI[];
-    userLevel: number;
-    totalBooks: number;
-  };
-  error?: string;
-}
+// Mock data para livros
+const MOCK_BOOKS = [
+  {
+    id: '1',
+    title: 'A Caixa de Pandora',
+    author: 'Hesíodo',
+    genre: 'Mitologia grega',
+    synopsis: 'Descubra o conto mitológico de Pandora, que nos revela a origem dos males do mundo e o dom da esperança.',
+    rewardMoney: 1000, // R$ 10,00 em centavos
+    rewardPoints: 100,
+    reviewsCount: 84288,
+    averageRating: 4.5,
+    estimatedReadTime: 7, // em minutos
+    difficulty: 'Fácil',
+    isAvailable: true,
+    requiredLevel: 0,
+    hasReceivedReward: false,
+    createdAt: '2024-01-01T00:00:00.000Z'
+  },
+  {
+    id: '2',
+    title: 'O Príncipe e a Gata',
+    author: 'Charles Perrault',
+    genre: 'Conto de fadas',
+    synopsis: 'Era uma vez um rei, pai de três corajosos príncipes, que estava em dúvida sobre qual deles deveria lhe suceder no trono.',
+    rewardMoney: 2000, // R$ 20,00 em centavos
+    rewardPoints: 150,
+    reviewsCount: 12947,
+    averageRating: 4.3,
+    estimatedReadTime: 8,
+    difficulty: 'Fácil',
+    isAvailable: true,
+    requiredLevel: 0,
+    hasReceivedReward: false,
+    createdAt: '2024-01-02T00:00:00.000Z'
+  },
+  {
+    id: '3',
+    title: 'O Banqueiro Anarquista',
+    author: 'Fernando Pessoa',
+    genre: 'Ensaio filosófico',
+    synopsis: 'Ensaio filosófico em forma de diálogo, onde um banqueiro se declara anarquista.',
+    rewardMoney: 3000, // R$ 30,00 em centavos
+    rewardPoints: 200,
+    reviewsCount: 11698,
+    averageRating: 4.7,
+    estimatedReadTime: 93,
+    difficulty: 'Médio',
+    isAvailable: true,
+    requiredLevel: 0,
+    hasReceivedReward: false,
+    createdAt: '2024-01-03T00:00:00.000Z'
+  },
+  {
+    id: '4',
+    title: 'De Quanta Terra um Homem Precisa?',
+    author: 'Liev Tolstói',
+    genre: 'Literatura russa',
+    synopsis: 'Um conto sobre ambição e as verdadeiras necessidades humanas.',
+    rewardMoney: 5000, // R$ 50,00 em centavos
+    rewardPoints: 300,
+    reviewsCount: 8754,
+    averageRating: 4.6,
+    estimatedReadTime: 18,
+    difficulty: 'Médio',
+    isAvailable: true,
+    requiredLevel: 0,
+    hasReceivedReward: false,
+    createdAt: '2024-01-04T00:00:00.000Z'
+  },
+  {
+    id: '5',
+    title: 'O Último Detetive de Baker Street',
+    author: 'Eduardo Santos',
+    genre: 'Mistério Urbano',
+    synopsis: 'Mistérios sombrios nas ruas de Londres com um detetive excepcional.',
+    rewardMoney: 8000, // R$ 80,00 em centavos
+    rewardPoints: 400,
+    reviewsCount: 5621,
+    averageRating: 4.4,
+    estimatedReadTime: 14,
+    difficulty: 'Difícil',
+    isAvailable: false,
+    requiredLevel: 1,
+    hasReceivedReward: false,
+    createdAt: '2024-01-05T00:00:00.000Z'
+  },
+  {
+    id: '6',
+    title: 'Suspeito Comum',
+    author: 'Maria Silva',
+    genre: 'Thriller psicológico',
+    synopsis: 'Um thriller que questiona a natureza da culpa e inocência.',
+    rewardMoney: 6000, // R$ 60,00 em centavos
+    rewardPoints: 350,
+    reviewsCount: 3245,
+    averageRating: 4.8,
+    estimatedReadTime: 12,
+    difficulty: 'Difícil',
+    isAvailable: false,
+    requiredLevel: 2,
+    hasReceivedReward: false,
+    createdAt: '2024-01-06T00:00:00.000Z'
+  }
+];
 
 const BooksPage: React.FC = () => {
   const { user } = useAuth();
-  const [booksData, setBooksData] = useState<BooksAPIResponse['data'] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Buscar livros da API
+  // Simular carregamento dos dados
   useEffect(() => {
-    const fetchBooks = async () => {
+    const loadBooks = async () => {
       try {
-        const token = localStorage.getItem('beta-reader-token');
-        const headers: HeadersInit = {
-          'Content-Type': 'application/json',
-        };
+        // Simular delay de carregamento
+        await new Promise(resolve => setTimeout(resolve, 800));
         
-        if (token) {
-          headers.Authorization = `Bearer ${token}`;
-        }
-
-        const response = await fetch('http://localhost:3001/api/books', {
-          headers
-        });
-
-        const data: BooksAPIResponse = await response.json();
-
-        if (data.success) {
-          setBooksData(data.data);
-        } else {
-          setError(data.error || 'Erro ao carregar livros');
-        }
+        console.log('📚 Livros carregados com dados mock');
+        setLoading(false);
       } catch (err) {
-        console.error('Erro ao buscar livros:', err);
-        setError('Erro de conexão com o servidor');
-      } finally {
+        setError('Erro ao carregar livros');
         setLoading(false);
       }
     };
 
-    fetchBooks();
+    loadBooks();
   }, []);
 
   if (!user) return null;
@@ -89,32 +147,7 @@ const BooksPage: React.FC = () => {
             <p>Buscando os melhores livros para você</p>
           </div>
         </div>
-        <style>{`
-          .loading-state {
-            text-align: center;
-            padding: 60px 20px;
-          }
-          .loading-spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid #e2e8f0;
-            border-top: 4px solid #8b5cf6;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
-          }
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-          .loading-state h2 {
-            color: #1e293b;
-            margin-bottom: 8px;
-          }
-          .loading-state p {
-            color: #64748b;
-          }
-        `}</style>
+        <style>{loadingStyles}</style>
       </div>
     );
   }
@@ -131,35 +164,19 @@ const BooksPage: React.FC = () => {
             </button>
           </div>
         </div>
-        <style>{`
-          .error-state {
-            text-align: center;
-            padding: 60px 20px;
-          }
-          .error-state h2 {
-            color: #dc2626;
-            margin-bottom: 16px;
-          }
-          .error-state p {
-            color: #64748b;
-            margin-bottom: 24px;
-          }
-          .retry-btn {
-            background: #8b5cf6;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 500;
-          }
-          .retry-btn:hover {
-            background: #7c3aed;
-          }
-        `}</style>
+        <style>{errorStyles}</style>
       </div>
     );
   }
+
+  // Processar livros baseado no nível do usuário
+  const userLevel = user.level || 0;
+  const availableBooks = MOCK_BOOKS.filter(book => 
+    book.isAvailable && book.requiredLevel <= userLevel
+  );
+  const lockedBooks = MOCK_BOOKS.filter(book => 
+    !book.isAvailable || book.requiredLevel > userLevel
+  );
 
   // Dados básicos do usuário
   const currentLevel = LEVELS.find(level => level.level === user.level) || LEVELS[0];
@@ -169,776 +186,666 @@ const BooksPage: React.FC = () => {
     return `R$ ${(value / 100).toFixed(2).replace('.', ',')}`;
   };
 
-  // Mapear dados da API para formato do componente
-  const mapApiBookToComponent = (apiBook: BookFromAPI) => ({
-    id: apiBook.id,
-    title: apiBook.title,
-    author: apiBook.author,
-    genre: apiBook.genre,
-    rewardMoney: apiBook.rewardMoney / 100, // API retorna em centavos
-    reviewsCount: apiBook.reviewsCount,
-    rating: apiBook.averageRating,
-    readTime: `${apiBook.estimatedReadTime} min`,
-    isAvailable: apiBook.isAvailable,
-    requiredLevel: apiBook.requiredLevel,
-    cover: getBookEmoji(apiBook.genre), // Gerar emoji baseado no gênero
-    description: apiBook.synopsis,
-    difficulty: apiBook.difficulty,
-    trending: apiBook.reviewsCount > 50000, // Popular se tiver muitas avaliações
-    hasReceivedReward: apiBook.hasReceivedReward
-  });
-
-  // Função para gerar emoji baseado no gênero
-  const getBookEmoji = (genre: string): string => {
-    if (genre.includes('Fantasia')) return '🏰';
-    if (genre.includes('Thriller') || genre.includes('Tecnológico')) return '💻';
-    if (genre.includes('Romance')) return '🌸';
-    if (genre.includes('Mistério') || genre.includes('Detetive')) return '🔍';
-    return '📚'; // Default
+  const formatTime = (minutes: number) => {
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}min` : `${hours}h`;
   };
 
-  // Organizar livros por disponibilidade
-  const availableBooks = booksData ? booksData.available.map(mapApiBookToComponent) : [];
-  const lockedBooks = booksData ? booksData.locked.map(mapApiBookToComponent) : [];
+  const getDifficultyColor = (difficulty: string) => {
+    switch (difficulty.toLowerCase()) {
+      case 'fácil': return '#10b981';
+      case 'médio': return '#f59e0b';
+      case 'difícil': return '#ef4444';
+      default: return '#6b7280';
+    }
+  };
 
-  // Separar livros bloqueados por nível
-  const getBooksForLevel = (level: number) => {
-    return lockedBooks.filter(book => book.requiredLevel === level);
+  const getGenreColor = (genre: string) => {
+    const colors: Record<string, string> = {
+      'Mitologia grega': '#895aed',
+      'Conto de fadas': '#dc2626',
+      'Ensaio filosófico': '#059669',
+      'Literatura russa': '#f59e0b',
+      'Mistério Urbano': '#8b5cf6',
+      'Thriller psicológico': '#dc2626'
+    };
+    return colors[genre] || '#6b7280';
   };
 
   return (
     <div className="books-page">
       <div className="container">
-        {/* Header com status centralizado */}
+        {/* Header da página */}
         <div className="page-header">
           <div className="header-content">
-            <div className="title-section">
-              <BookOpen size={28} />
-              <div className="title-text">
-                <h1>Biblioteca de Livros</h1>
-                <p>Escolha um livro para avaliar hoje</p>
+            <h1>Biblioteca</h1>
+            <p>Descubra, leia e ganhe dinheiro com os melhores livros</p>
+          </div>
+          
+          <div className="user-level-card">
+            <div className="level-info">
+              <div className="level-badge" style={{ backgroundColor: currentLevel.color }}>
+                <Crown size={16} />
+                <span>{currentLevel.name}</span>
               </div>
-            </div>
-            
-            <div className="user-status-card">
-              <div className="level-info">
-                <div className="level-badge">
-                  <Crown size={16} />
-                  <span>Nível {currentLevel.name}</span>
-                </div>
-                <div className="points-display">
-                  <Award size={16} />
-                  <span>{user.points} pontos</span>
-                </div>
-              </div>
-              
-              <div className="daily-limit">
-                <div className="limit-display">
-                  <span className="current">
-                    {user.planType === 'premium' ? '3' : '1'}
-                  </span>
-                  <span className="separator">/</span>
-                  <span className="max">
-                    {user.planType === 'premium' ? '3' : '1'}
-                  </span>
-                  <span className="label">livros hoje • limite diário</span>
-                </div>
-                
+              <div className="level-details">
+                <span className="points">{user.points} pontos</span>
                 {nextLevel && (
-                  <p className="next-level">
-                    Faltam <strong>{nextLevel.pointsRequired - user.points} pontos</strong> para {nextLevel.name} 
-                    ({nextLevel.booksUnlocked || 3} livros/dia)
-                  </p>
+                  <span className="next-level">
+                    {nextLevel.pointsRequired - user.points} para {nextLevel.name}
+                  </span>
                 )}
               </div>
             </div>
           </div>
         </div>
 
+        {/* Estatísticas rápidas */}
+        <div className="stats-row">
+          <div className="stat-item">
+            <BookOpen size={20} />
+            <span className="stat-value">{availableBooks.length}</span>
+            <span className="stat-label">Disponíveis</span>
+          </div>
+          <div className="stat-item">
+            <Lock size={20} />
+            <span className="stat-value">{lockedBooks.length}</span>
+            <span className="stat-label">Bloqueados</span>
+          </div>
+          <div className="stat-item">
+            <Award size={20} />
+            <span className="stat-value">{formatCurrency(user.balance)}</span>
+            <span className="stat-label">Seu Saldo</span>
+          </div>
+        </div>
+
         {/* Livros Disponíveis */}
         {availableBooks.length > 0 && (
-          <div className="section">
+          <section className="books-section">
             <div className="section-header">
-              <h2>
-                <span className="icon">⚡</span>
-                Disponíveis Agora
-              </h2>
-              <div className="section-info">
-                {availableBooks.length} livro(s)
-              </div>
+              <h2>Livros Disponíveis</h2>
+              <span className="count">{availableBooks.length} livros</span>
             </div>
             
-            <div className="books-container">
+            <div className="books-grid">
               {availableBooks.map((book) => (
                 <div key={book.id} className="book-card available">
-                  {/* Header do Card */}
-                  <div className="book-header">
-                    <div className="book-cover-section">
-                      <div className="book-cover">
-                        <span className="cover-emoji">{book.cover}</span>
-                        <div className="availability-dot"></div>
-                        {book.trending && (
-                          <div className="trending-badge">
-                            <TrendingUp size={12} />
-                            Popular
-                          </div>
-                        )}
-                        {book.hasReceivedReward && (
-                          <div className="completed-badge">
-                            <Star size={12} />
-                            Concluído
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div className="book-info-section">
-                      <div className="book-title-area">
-                        <h3 className="book-title">{book.title}</h3>
-                        <p className="book-author">por {book.author}</p>
-                      </div>
-                      
-                      <div className="book-meta-tags">
-                        <span className="genre-tag">{book.genre}</span>
-                        <div className="rating-display">
-                          <Star size={12} fill="currentColor" />
-                          <span>{book.rating}</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="book-reward-section">
-                      <div className="reward-amount">{formatCurrency(book.rewardMoney)}</div>
-                      <span className="reward-label">
-                        {book.hasReceivedReward ? 'já recebido' : 'por avaliação'}
-                      </span>
+                  <div className="book-cover" style={{ backgroundColor: getGenreColor(book.genre) }}>
+                    <div className="cover-content">
+                      <BookOpen size={32} />
+                      <div className="genre-badge">{book.genre}</div>
                     </div>
                   </div>
                   
-                  {/* Body do Card */}
-                  <div className="book-content">
-                    <p className="book-description">{book.description}</p>
+                  <div className="book-info">
+                    <h3 className="book-title">{book.title}</h3>
+                    <p className="book-author">por {book.author}</p>
+                    <p className="book-synopsis">{book.synopsis}</p>
                     
-                    <div className="book-stats-row">
-                      <div className="stats-left">
-                        <div className="stat-item">
-                          <Clock size={14} />
-                          <span>{book.readTime}</span>
-                        </div>
-                        <div className="stat-item">
-                          <Users size={14} />
-                          <span>+{book.reviewsCount.toLocaleString()} usuários já avaliaram</span>
-                        </div>
+                    <div className="book-meta">
+                      <div className="meta-item">
+                        <Clock size={14} />
+                        <span>{formatTime(book.estimatedReadTime)}</span>
                       </div>
-                      <div className="stats-right">
-                        <div className={`difficulty-badge difficulty-${book.difficulty.toLowerCase()}`}>
-                          {book.difficulty}
-                        </div>
+                      <div className="meta-item">
+                        <Star size={14} />
+                        <span>{book.averageRating.toFixed(1)}</span>
                       </div>
+                      <div className="meta-item">
+                        <Users size={14} />
+                        <span>{book.reviewsCount.toLocaleString()}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="book-rewards">
+                      <div className="reward-item">
+                        <Zap size={16} />
+                        <span>{formatCurrency(book.rewardMoney)}</span>
+                      </div>
+                      <div className="reward-item">
+                        <Award size={16} />
+                        <span>{book.rewardPoints} pts</span>
+                      </div>
+                    </div>
+                    
+                    <div className="difficulty-badge" style={{ backgroundColor: getDifficultyColor(book.difficulty) }}>
+                      {book.difficulty}
                     </div>
                   </div>
                   
-                  {/* Footer do Card */}
-                  <div className="book-action">
-                    <Link to={`/books/${book.id}`} className="btn-evaluate">
-                      <Zap size={16} />
-                      {book.hasReceivedReward ? 'Ver detalhes' : 'Clique para avaliar'}
+                  <div className="book-actions">
+                    <Link to={`/book/${book.id}`} className="btn-primary">
+                      <BookOpen size={16} />
+                      Ler Agora
+                    </Link>
+                    <Link to={`/book-detail/${book.id}`} className="btn-secondary">
+                      Ver Detalhes
                     </Link>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
+          </section>
         )}
 
-        {/* Livros por Nível */}
-        {[1, 2].map((level) => {
-          const levelBooks = getBooksForLevel(level);
-          const levelInfo = LEVELS.find(l => l.level === level);
-          
-          if (levelBooks.length === 0) return null;
-          
-          return (
-            <div key={level} className="section locked-section">
-              <div className="section-header">
-                <h2>
-                  <span className="icon">🔒</span>
-                  Nível {levelInfo?.name}
-                </h2>
-                <div className="section-info">
-                  {levelBooks.length} livro(s) • {levelInfo?.booksUnlocked || 3} por dia
-                </div>
-              </div>
-              
-              <div className="books-container">
-                {levelBooks.map((book) => (
-                  <div key={book.id} className="book-card locked">
-                    <div className="book-header">
-                      <div className="book-cover-section">
-                        <div className="book-cover">
-                          <span className="cover-emoji">{book.cover}</span>
-                          <div className="lock-overlay">
-                            <Lock size={16} />
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="book-info-section">
-                        <div className="book-title-area">
-                          <h3 className="book-title">{book.title}</h3>
-                          <p className="book-author">por {book.author}</p>
-                        </div>
-                        
-                        <div className="book-meta-tags">
-                          <span className="genre-tag">{book.genre}</span>
-                          <div className="rating-display">
-                            <Star size={12} fill="currentColor" />
-                            <span>{book.rating}</span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="book-reward-section">
-                        <div className="reward-amount">{formatCurrency(book.rewardMoney)}</div>
-                        <span className="reward-label">por avaliação</span>
-                      </div>
-                    </div>
-                    
-                    <div className="book-content">
-                      <p className="book-description">{book.description}</p>
-                      
-                      <div className="book-stats-row">
-                        <div className="stats-left">
-                          <div className="stat-item">
-                            <Clock size={14} />
-                            <span>{book.readTime}</span>
-                          </div>
-                          <div className="stat-item">
-                            <Users size={14} />
-                            <span>+{book.reviewsCount.toLocaleString()} usuários já avaliaram</span>
-                          </div>
-                        </div>
-                        <div className="stats-right">
-                          <div className={`difficulty-badge difficulty-${book.difficulty.toLowerCase()}`}>
-                            {book.difficulty}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="book-action">
-                      <div className="locked-info">
-                        <Lock size={14} />
-                        <span>Nível {levelInfo?.name} necessário</span>
+        {/* Livros Bloqueados */}
+        {lockedBooks.length > 0 && (
+          <section className="books-section">
+            <div className="section-header">
+              <h2>Livros Bloqueados</h2>
+              <span className="count">{lockedBooks.length} livros</span>
+            </div>
+            
+            <div className="books-grid">
+              {lockedBooks.map((book) => (
+                <div key={book.id} className="book-card locked">
+                  <div className="book-cover locked" style={{ backgroundColor: getGenreColor(book.genre) }}>
+                    <div className="cover-content">
+                      <Lock size={32} />
+                      <div className="lock-overlay">
+                        <span>Nível {book.requiredLevel}</span>
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
+                  
+                  <div className="book-info">
+                    <h3 className="book-title">{book.title}</h3>
+                    <p className="book-author">por {book.author}</p>
+                    <p className="book-synopsis">{book.synopsis}</p>
+                    
+                    <div className="unlock-requirement">
+                      <Lock size={16} />
+                      <span>Requer nível {book.requiredLevel}</span>
+                    </div>
+                    
+                    <div className="book-rewards">
+                      <div className="reward-item">
+                        <Zap size={16} />
+                        <span>{formatCurrency(book.rewardMoney)}</span>
+                      </div>
+                      <div className="reward-item">
+                        <Award size={16} />
+                        <span>{book.rewardPoints} pts</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="book-actions">
+                    <button className="btn-disabled" disabled>
+                      <Lock size={16} />
+                      Bloqueado
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-          );
-        })}
+          </section>
+        )}
 
-        {/* Caso não tenha nenhum livro */}
+        {/* Empty state */}
         {availableBooks.length === 0 && lockedBooks.length === 0 && (
-          <div className="no-books-state">
-            <BookOpen size={48} />
-            <h2>Nenhum livro disponível</h2>
-            <p>Não há livros cadastrados no momento. Volte em breve!</p>
+          <div className="empty-state">
+            <BookOpen size={64} />
+            <h2>Nenhum livro encontrado</h2>
+            <p>Não encontramos livros disponíveis no momento.</p>
           </div>
         )}
       </div>
-      
-      <style>{`
-        .books-page {
-          min-height: calc(100vh - 140px);
-          background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-          padding: 32px 0;
-        }
-        
-        .container {
-          max-width: 1000px;
-          margin: 0 auto;
-          padding: 0 24px;
-        }
-        
-        /* Estados especiais */
-        .no-books-state {
-          text-align: center;
-          padding: 60px 20px;
-          color: #64748b;
-        }
-        
-        .no-books-state h2 {
-          color: #1e293b;
-          margin: 16px 0 8px 0;
-        }
-        
-        /* Badge para livros concluídos */
-        .completed-badge {
-          position: absolute;
-          bottom: -8px;
-          left: -8px;
-          background: #10b981;
-          color: white;
-          padding: 4px 8px;
-          border-radius: 8px;
-          font-size: 10px;
-          font-weight: 600;
-          display: flex;
-          align-items: center;
-          gap: 4px;
-        }
-        
-        /* Header Estruturado */
-        .page-header {
-          margin-bottom: 48px;
-        }
-        
-        .header-content {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 40px;
-          flex-wrap: wrap;
-        }
-        
-        .title-section {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          color: #8b5cf6;
-        }
-        
-        .title-text h1 {
-          font-size: 32px;
-          font-weight: 700;
-          margin: 0 0 8px 0;
-          background: linear-gradient(135deg, #8b5cf6, #06b6d4);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-        }
-        
-        .title-text p {
-          color: #64748b;
-          margin: 0;
-          font-size: 16px;
-        }
-        
-        /* Status Card Alinhado */
-        .user-status-card {
-          background: white;
-          padding: 24px;
-          border-radius: 16px;
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-          border: 1px solid #e2e8f0;
-          min-width: 320px;
-          flex-shrink: 0;
-        }
-        
-        .level-info {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 16px;
-        }
-        
-        .level-badge {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          background: #8b5cf6;
-          color: white;
-          padding: 8px 16px;
-          border-radius: 20px;
-          font-size: 14px;
-          font-weight: 600;
-        }
-        
-        .points-display {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          color: #64748b;
-          font-size: 14px;
-          font-weight: 500;
-        }
-        
-        .daily-limit {
-          text-align: center;
-        }
-        
-        .limit-display {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 4px;
-          font-size: 16px;
-          font-weight: 600;
-          margin-bottom: 8px;
-        }
-        
-        .current { color: #10b981; }
-        .separator { color: #94a3b8; }
-        .max { color: #10b981; }
-        .label { 
-          color: #64748b; 
-          font-size: 13px;
-          margin-left: 8px;
-        }
-        
-        .next-level {
-          font-size: 12px;
-          color: #64748b;
-          margin: 0;
-          line-height: 1.4;
-        }
-        
-        /* Seções Organizadas */
-        .section {
-          margin-bottom: 48px;
-        }
-        
-        .locked-section {
-          opacity: 0.9;
-        }
-        
-        .section-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 24px;
-        }
-        
-        .section-header h2 {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          font-size: 24px;
-          font-weight: 600;
-          color: #1e293b;
-          margin: 0;
-        }
-        
-        .locked-section .section-header h2 {
-          color: #64748b;
-        }
-        
-        .icon {
-          font-size: 20px;
-        }
-        
-        .section-info {
-          background: #f1f5f9;
-          color: #475569;
-          padding: 8px 16px;
-          border-radius: 12px;
-          font-size: 14px;
-          font-weight: 600;
-        }
-        
-        /* Container dos Cards */
-        .books-container {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-        }
-        
-        /* Cards Estruturados */
-        .book-card {
-          background: white;
-          border-radius: 16px;
-          padding: 24px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
-          border: 2px solid transparent;
-          transition: all 0.3s ease;
-        }
-        
-        .book-card.available {
-          border-color: #10b981;
-        }
-        
-        .book-card.available:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-        }
-        
-        .book-card.locked {
-          border-color: #e5e7eb;
-          opacity: 0.8;
-        }
-        
-        /* Header do Card Alinhado */
-        .book-header {
-          display: flex;
-          align-items: flex-start;
-          gap: 20px;
-          margin-bottom: 16px;
-        }
-        
-        .book-cover-section {
-          flex-shrink: 0;
-          position: relative;
-        }
-        
-        .book-cover {
-          position: relative;
-          width: 70px;
-          height: 90px;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          border-radius: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-        }
-        
-        .cover-emoji {
-          font-size: 28px;
-        }
-        
-        .availability-dot {
-          position: absolute;
-          top: -4px;
-          right: -4px;
-          width: 16px;
-          height: 16px;
-          background: #10b981;
-          border: 3px solid white;
-          border-radius: 50%;
-        }
-        
-        .lock-overlay {
-          position: absolute;
-          inset: 0;
-          background: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          border-radius: 12px;
-        }
-        
-        .trending-badge {
-          position: absolute;
-          top: -8px;
-          left: -8px;
-          background: linear-gradient(135deg, #ff6b6b, #ffa500);
-          color: white;
-          padding: 4px 8px;
-          border-radius: 8px;
-          font-size: 10px;
-          font-weight: 600;
-          display: flex;
-          align-items: center;
-          gap: 4px;
-        }
-        
-        .book-info-section {
-          flex: 1;
-          min-width: 0;
-        }
-        
-        .book-title-area {
-          margin-bottom: 12px;
-        }
-        
-        .book-title {
-          font-size: 18px;
-          font-weight: 600;
-          color: #1e293b;
-          margin: 0 0 4px 0;
-          line-height: 1.3;
-        }
-        
-        .book-author {
-          color: #64748b;
-          font-size: 14px;
-          margin: 0;
-          font-weight: 500;
-        }
-        
-        .book-meta-tags {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-        
-        .genre-tag {
-          background: #fef3c7;
-          color: #d97706;
-          padding: 4px 10px;
-          border-radius: 6px;
-          font-size: 12px;
-          font-weight: 600;
-        }
-        
-        .rating-display {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          color: #f59e0b;
-          font-size: 14px;
-          font-weight: 600;
-        }
-        
-        .book-reward-section {
-          text-align: right;
-          flex-shrink: 0;
-        }
-        
-        .reward-amount {
-          font-size: 20px;
-          font-weight: 700;
-          color: #10b981;
-          margin-bottom: 2px;
-        }
-        
-        .reward-label {
-          font-size: 12px;
-          color: #64748b;
-          font-weight: 500;
-        }
-        
-        /* Content do Card */
-        .book-content {
-          margin-bottom: 20px;
-        }
-        
-        .book-description {
-          color: #475569;
-          font-size: 14px;
-          line-height: 1.6;
-          margin: 0 0 16px 0;
-        }
-        
-        .book-stats-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-        
-        .stats-left {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-        }
-        
-        .stat-item {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          color: #64748b;
-          font-size: 13px;
-          font-weight: 500;
-        }
-        
-        .stats-right {
-          flex-shrink: 0;
-        }
-        
-        .difficulty-badge {
-          padding: 6px 12px;
-          border-radius: 8px;
-          font-size: 12px;
-          font-weight: 600;
-        }
-        
-        .difficulty-fácil {
-          background: #dcfce7;
-          color: #16a34a;
-        }
-        
-        .difficulty-médio {
-          background: #fef3c7;
-          color: #d97706;
-        }
-        
-        .difficulty-difícil {
-          background: #fee2e2;
-          color: #dc2626;
-        }
-        
-        /* Action do Card */
-        .book-action {
-          display: flex;
-          justify-content: center;
-        }
-        
-        .btn-evaluate {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          background: linear-gradient(135deg, #8b5cf6, #06b6d4);
-          color: white;
-          text-decoration: none;
-          padding: 12px 24px;
-          border-radius: 12px;
-          font-weight: 600;
-          font-size: 14px;
-          transition: all 0.3s ease;
-          box-shadow: 0 4px 16px rgba(139, 92, 246, 0.3);
-        }
-        
-        .btn-evaluate:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 24px rgba(139, 92, 246, 0.4);
-        }
-        
-        .locked-info {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          color: #9ca3af;
-          font-size: 14px;
-          font-weight: 600;
-          background: #f9fafb;
-          padding: 12px 20px;
-          border-radius: 10px;
-        }
-        
-        /* Responsive */
-        @media (max-width: 768px) {
-          .container {
-            padding: 0 16px;
-          }
-          
-          .header-content {
-            flex-direction: column;
-            align-items: stretch;
-            gap: 24px;
-          }
-          
-          .user-status-card {
-            min-width: 0;
-          }
-          
-          .book-header {
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-          }
-          
-          .book-reward-section {
-            text-align: center;
-            order: -1;
-          }
-          
-          .book-stats-row {
-            flex-direction: column;
-            gap: 12px;
-            align-items: center;
-          }
-          
-          .stats-left {
-            flex-direction: column;
-            gap: 8px;
-          }
-        }
-      `}</style>
+
+      <style>{getStyles()}</style>
     </div>
   );
 };
+
+// Estilos da página
+const loadingStyles = `
+  .loading-state {
+    text-align: center;
+    padding: 60px 20px;
+  }
+  .loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #e2e8f0;
+    border-top: 4px solid #8b5cf6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+  }
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  .loading-state h2 {
+    color: #1e293b;
+    margin-bottom: 8px;
+  }
+  .loading-state p {
+    color: #64748b;
+  }
+`;
+
+const errorStyles = `
+  .error-state {
+    text-align: center;
+    padding: 60px 20px;
+  }
+  .error-state h2 {
+    color: #dc2626;
+    margin-bottom: 16px;
+  }
+  .error-state p {
+    color: #64748b;
+    margin-bottom: 24px;
+  }
+  .retry-btn {
+    background: #8b5cf6;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .retry-btn:hover {
+    background: #7c3aed;
+  }
+`;
+
+const getStyles = () => `
+  .books-page {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px 0 100px;
+  }
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+
+  .page-header {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .header-content h1 {
+    color: white;
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  .header-content p {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 1.1rem;
+  }
+
+  .user-level-card {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .level-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: white;
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 8px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    width: fit-content;
+  }
+
+  .level-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .points {
+    color: white;
+    font-weight: 600;
+  }
+
+  .next-level {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9rem;
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 32px;
+  }
+
+  .stat-item {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .stat-item svg {
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: white;
+  }
+
+  .stat-label {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9rem;
+  }
+
+  .books-section {
+    margin-bottom: 48px;
+  }
+
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+  }
+
+  .section-header h2 {
+    color: white;
+    font-size: 1.8rem;
+    font-weight: 600;
+  }
+
+  .count {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 1rem;
+  }
+
+  .books-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 24px;
+  }
+
+  .book-card {
+    background: white;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    position: relative;
+  }
+
+  .book-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+  }
+
+  .book-card.locked {
+    opacity: 0.7;
+  }
+
+  .book-cover {
+    height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .book-cover.locked::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(2px);
+  }
+
+  .cover-content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .cover-content svg {
+    color: white;
+    opacity: 0.9;
+  }
+
+  .genre-badge {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+
+  .lock-overlay {
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .book-info {
+    padding: 20px;
+    position: relative;
+  }
+
+  .book-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #1e293b;
+    margin-bottom: 4px;
+    line-height: 1.3;
+  }
+
+  .book-author {
+    color: #64748b;
+    font-size: 0.9rem;
+    margin-bottom: 12px;
+  }
+
+  .book-synopsis {
+    color: #475569;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    margin-bottom: 16px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .book-meta {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .meta-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: #64748b;
+    font-size: 0.8rem;
+  }
+
+  .meta-item svg {
+    opacity: 0.7;
+  }
+
+  .book-rewards {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .reward-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #f1f5f9;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #475569;
+  }
+
+  .reward-item svg {
+    color: #8b5cf6;
+  }
+
+  .difficulty-badge {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .unlock-requirement {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #dc2626;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin-bottom: 16px;
+    padding: 8px 12px;
+    background: #fef2f2;
+    border-radius: 8px;
+  }
+
+  .book-actions {
+    padding: 0 20px 20px;
+    display: flex;
+    gap: 12px;
+  }
+
+  .btn-primary {
+    flex: 1;
+    background: #8b5cf6;
+    color: white;
+    text-decoration: none;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: background 0.2s;
+  }
+
+  .btn-primary:hover {
+    background: #7c3aed;
+  }
+
+  .btn-secondary {
+    background: #f1f5f9;
+    color: #475569;
+    text-decoration: none;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    transition: background 0.2s;
+  }
+
+  .btn-secondary:hover {
+    background: #e2e8f0;
+  }
+
+  .btn-disabled {
+    flex: 1;
+    background: #e2e8f0;
+    color: #94a3b8;
+    border: none;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: not-allowed;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: white;
+  }
+
+  .empty-state svg {
+    opacity: 0.5;
+    margin-bottom: 20px;
+  }
+
+  .empty-state h2 {
+    margin-bottom: 8px;
+    opacity: 0.9;
+  }
+
+  .empty-state p {
+    opacity: 0.7;
+  }
+
+  @media (max-width: 768px) {
+    .page-header {
+      flex-direction: column;
+      text-align: center;
+      gap: 20px;
+    }
+
+    .books-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .stats-row {
+      grid-template-columns: 1fr;
+    }
+  }
+`;
 
 export default BooksPage;
