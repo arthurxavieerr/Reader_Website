@@ -484,6 +484,7 @@ const getStyles = () => `
     flex-direction: column;
     margin: 0;
     align-items: flex-start;
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
   }
 
   .header-content-books h1 {
