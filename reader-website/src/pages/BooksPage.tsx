@@ -578,17 +578,16 @@ const getStyles = () => `
     justify-content: space-between;
     align-items: center;
     margin-bottom: 24px;
-    background: #7c3aed;
   }
 
   .section-header h2 {
-    color: white;
+    color: #111;
     font-size: 1.8rem;
     font-weight: 600;
   }
 
   .count {
-    color: rgba(255, 255, 255, 0.7);
+    color: #111;
     font-size: 1rem;
   }
 
