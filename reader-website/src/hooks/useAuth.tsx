@@ -1,8 +1,7 @@
-// src/hooks/useAuth.tsx - ATUALIZADO PARA API REAL
+// src/hooks/useAuth.tsx - VERSÃO FINAL COM API REAL
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
 import { User, AuthState, AuthActions, RegisterData, OnboardingData, getLevelInfo } from '../types';
 
-// Configuração da API - usar Vercel
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://beta-review777.vercel.app/api';
 
 type AuthAction =
@@ -38,7 +37,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     error: null,
   });
 
-  // Função utilitária para fazer requisições autenticadas
   const makeAuthenticatedRequest = async (endpoint: string, options: RequestInit = {}) => {
     const token = localStorage.getItem('token');
     
@@ -57,7 +55,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     if (!response.ok) {
       if (response.status === 401) {
-        // Token expirado/inválido - fazer logout
         localStorage.removeItem('token');
         localStorage.removeItem('beta-reader-user');
         dispatch({ type: 'SET_USER', payload: null });
@@ -71,7 +68,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return response.json();
   };
 
-  // Verificar autenticação na inicialização
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -82,15 +78,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return;
         }
 
-        // Verificar se token ainda é válido com o backend
         const data = await makeAuthenticatedRequest('/auth/me');
         
         if (data.success && data.data.user) {
-          // Atualizar dados salvos localmente
           localStorage.setItem('beta-reader-user', JSON.stringify(data.data.user));
           dispatch({ type: 'SET_USER', payload: data.data.user });
         } else {
-          // Dados inválidos, limpar storage
           localStorage.removeItem('token');
           localStorage.removeItem('beta-reader-user');
           dispatch({ type: 'SET_LOADING', payload: false });
@@ -98,17 +91,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         
       } catch (error: any) {
         console.error('Erro ao verificar autenticação:', error);
-        
-        // Limpar dados inválidos
         localStorage.removeItem('token');
         localStorage.removeItem('beta-reader-user');
-        
-        if (error.message === 'Sessão expirada') {
-          dispatch({ type: 'SET_ERROR', payload: 'Sessão expirada. Faça login novamente.' });
-        } else {
-          dispatch({ type: 'SET_ERROR', payload: 'Erro ao verificar autenticação' });
-        }
-        
+        dispatch({ type: 'SET_ERROR', payload: 'Erro ao conectar com o servidor' });
         dispatch({ type: 'SET_LOADING', payload: false });
       }
     };
@@ -123,9 +108,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
 
@@ -137,18 +120,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const data = await response.json();
       
       if (data.success && data.data.user && data.data.token) {
-        // Salvar token e dados do usuário
         localStorage.setItem('token', data.data.token);
         localStorage.setItem('beta-reader-user', JSON.stringify(data.data.user));
-        
         dispatch({ type: 'SET_USER', payload: data.data.user });
-        console.log('Login realizado com sucesso');
       } else {
         throw new Error('Resposta inválida do servidor');
       }
       
     } catch (error: any) {
-      console.error('Erro no login:', error);
       dispatch({ type: 'SET_ERROR', payload: error.message || 'Erro no login' });
       throw error;
     }
@@ -161,9 +140,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const response = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(userData),
       });
 
@@ -177,15 +154,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (data.success && data.data.user && data.data.token) {
         localStorage.setItem('token', data.data.token);
         localStorage.setItem('beta-reader-user', JSON.stringify(data.data.user));
-        
         dispatch({ type: 'SET_USER', payload: data.data.user });
-        console.log('Registro realizado com sucesso');
       } else {
         throw new Error('Resposta inválida do servidor');
       }
       
     } catch (error: any) {
-      console.error('Erro no registro:', error);
       dispatch({ type: 'SET_ERROR', payload: error.message || 'Erro no cadastro' });
       throw error;
     }
@@ -195,16 +169,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.removeItem('token');
     localStorage.removeItem('beta-reader-user');
     dispatch({ type: 'SET_USER', payload: null });
-    console.log('Logout realizado');
   };
 
   const completeOnboarding = async (data: OnboardingData) => {
-    if (!state.user) {
-      throw new Error('Usuário não autenticado');
-    }
+    if (!state.user) throw new Error('Usuário não autenticado');
 
     dispatch({ type: 'SET_LOADING', payload: true });
-    dispatch({ type: 'SET_ERROR', payload: null });
 
     try {
       const result = await makeAuthenticatedRequest('/auth/onboarding', {
@@ -215,25 +185,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (result.success && result.data.user) {
         localStorage.setItem('beta-reader-user', JSON.stringify(result.data.user));
         dispatch({ type: 'SET_USER', payload: result.data.user });
-        console.log('Onboarding completado com sucesso');
-      } else {
-        throw new Error('Resposta inválida do servidor');
       }
-      
     } catch (error: any) {
-      console.error('Erro no onboarding:', error);
       dispatch({ type: 'SET_ERROR', payload: error.message || 'Erro ao completar onboarding' });
       throw error;
     }
   };
 
   const updateProfile = async (data: Partial<User>) => {
-    if (!state.user) {
-      throw new Error('Usuário não autenticado');
-    }
+    if (!state.user) throw new Error('Usuário não autenticado');
 
     dispatch({ type: 'SET_LOADING', payload: true });
-    dispatch({ type: 'SET_ERROR', payload: null });
 
     try {
       const result = await makeAuthenticatedRequest('/auth/update-profile', {
@@ -244,19 +206,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (result.success && result.data.user) {
         localStorage.setItem('beta-reader-user', JSON.stringify(result.data.user));
         dispatch({ type: 'SET_USER', payload: result.data.user });
-        console.log('Perfil atualizado com sucesso');
-      } else {
-        throw new Error('Resposta inválida do servidor');
       }
-      
     } catch (error: any) {
-      console.error('Erro ao atualizar perfil:', error);
       dispatch({ type: 'SET_ERROR', payload: error.message || 'Erro ao atualizar perfil' });
       throw error;
     }
   };
 
-  // Funções utilitárias
   const getCurrentLevelName = (): string => {
     if (!state.user) return 'Visitante';
     if (state.user.isAdmin) return 'Admin';
