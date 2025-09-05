@@ -1,47 +1,69 @@
-// api/auth/me.ts - VERSÃO SIMPLIFICADA
-export default async function handler(req: any, res: any) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+// api/auth/me.ts
+import { VercelRequest, VercelResponse } from '@vercel/node';
+import { PrismaClient } from '@prisma/client';
+import { authenticateRequest } from '../_utils/auth';
+import { sendError, sendSuccess } from '../_utils/response';
+import { setCors } from '../_utils/cors';
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+const prisma = new PrismaClient();
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // Configurar CORS
+  setCors(res);
+  
+  // Responder a requisições OPTIONS (preflight)
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  // Apenas GET permitido
+  if (req.method !== 'GET') {
+    return sendError(res, 405, 'Método não permitido');
+  }
 
   try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        error: 'Token não fornecido'
-      });
+    // Verificar autenticação
+    const authUser = await authenticateRequest(req);
+    if (!authUser) {
+      return sendError(res, 401, 'Usuário não autenticado');
     }
 
-    // Por enquanto, retornar usuário mock
-    const userData = {
-      id: '1',
-      name: 'Arthur',
-      email: 'arthur@example.com',
-      phone: '(11) 99999-9999',
-      level: 0,
-      points: 0,
-      balance: 0,
-      planType: 'free',
-      isAdmin: false,
-      onboardingCompleted: false,
-      createdAt: new Date().toISOString(),
+    // Buscar dados atualizados do usuário
+    const user = await prisma.user.findUnique({
+      where: { id: authUser.userId }
+    });
+
+    if (!user) {
+      return sendError(res, 404, 'Usuário não encontrado');
+    }
+
+    // Dados públicos do usuário (sem senha)
+    const publicUser = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      level: user.level,
+      points: user.points,
+      balance: user.balance,
+      planType: user.planType.toLowerCase(),
+      isAdmin: user.isAdmin,
+      onboardingCompleted: user.onboardingCompleted,
+      commitment: user.commitment?.toLowerCase(),
+      incomeRange: user.incomeRange?.toLowerCase(),
+      profileImage: user.profileImage,
+      isSuspended: user.isSuspended,
+      suspendedReason: user.suspendedReason,
+      createdAt: user.createdAt.toISOString(),
+      lastLoginAt: user.lastLoginAt?.toISOString(),
     };
 
-    return res.status(200).json({
-      success: true,
-      data: { user: userData }
-    });
+    return sendSuccess(res, { user: publicUser });
 
   } catch (error) {
     console.error('Get me error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Erro interno do servidor'
-    });
+    return sendError(res, 500, 'Erro interno do servidor');
+  } finally {
+    await prisma.$disconnect();
   }
 }
