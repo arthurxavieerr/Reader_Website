@@ -8,9 +8,9 @@ import estrelaIcon from '../assets/icons/estrela.png';
 import dinheiroIcon from '../assets/icons/dinheiro.png';
 import fundo from '../assets/fundo.png';
 import logo from '../assets/icons/logo.png'
-import depoimento1 from '../assets/depoimentos/depoimento1.jpg';
-import depoimento2 from '../assets/depoimentos/depoimento2.jpg';
-import depoimento3 from '../assets/depoimentos/depoimento3.webp';
+import depoimento1 from '../assets/depoimentos/depoimento2.jpg';
+import depoimento2 from '../assets/depoimentos/depoimento3.webp';
+import depoimento3 from '../assets/depoimentos/depoimento1.jpg';
 
 
 const LandingPage: React.FC = () => {
@@ -489,15 +489,10 @@ const LandingPage: React.FC = () => {
         }
         
         .testimonial-avatar {
-          width: 48px;
-          height: 48px;
-          border-radius: var(--radius-full);
-          background-color: var(--color-primary);
-          color: white;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: var(--font-semibold);
+          width: 50px; /* Ajuste o tamanho conforme necessário */
+          height: 50px; /* Certifique-se de que a altura seja a mesma */
+          border-radius: 50%; /* Tornando a imagem redonda */
+          object-fit: cover; /* Faz a imagem preencher a área sem distorcer */
         }
         
         .testimonial-info h4 {
