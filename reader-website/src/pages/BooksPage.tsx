@@ -542,7 +542,7 @@ const getStyles = () => `
   }
 
   .stat-item {
-    background: rgba(255, 255, 255, 0.1);
+    background: #7c3aed;
     backdrop-filter: blur(10px);
     border-radius: 12px;
     padding: 24px;
