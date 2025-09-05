@@ -578,6 +578,7 @@ const getStyles = () => `
     justify-content: space-between;
     align-items: center;
     margin-bottom: 24px;
+    background: #7c3aed;
   }
 
   .section-header h2 {
