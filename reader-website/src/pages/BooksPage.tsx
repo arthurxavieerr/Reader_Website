@@ -468,7 +468,7 @@ const getStyles = () => `
   }
 
   .page-header {
-    background: #white;
+    background: #8b5cf6;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
     backdrop-filter: blur(10px);
     border-radius: 16px;
@@ -545,7 +545,8 @@ const getStyles = () => `
   }
 
   .stat-item {
-    background: #7c3aed;
+    background: #white;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
     backdrop-filter: blur(10px);
     border-radius: 12px;
     padding: 24px;
@@ -558,17 +559,17 @@ const getStyles = () => `
   }
 
   .stat-item svg {
-    color: rgba(255, 255, 255, 0.8);
+    color: #1e293b;
   }
 
   .stat-value {
     font-size: 1.5rem;
     font-weight: 700;
-    color: white;
+    color: #1e293b;
   }
 
   .stat-label {
-    color: rgba(255, 255, 255, 0.7);
+    color: #1e293b;
     font-size: 0.9rem;
   }
 
