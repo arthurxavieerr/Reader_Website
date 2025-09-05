@@ -12,6 +12,13 @@
     }
   ],
   "routes": [
+    {
+      "src": "/books/(.*)",
+      "dest": "/books/$1",
+      "headers": {
+        "Cache-Control": "public, max-age=0"
+      }
+    },
     { "src": "/api/(.*)", "dest": "/api/$1" },
     { "src": "/assets/(.*)", "dest": "/assets/$1" },
     { "src": "/(.*)", "dest": "/index.html" }
