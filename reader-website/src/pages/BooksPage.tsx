@@ -316,7 +316,7 @@ const BooksPage: React.FC = () => {
                   </div>
                   
                   <div className="book-actions">
-                    <Link to={`/book/${book.id}`} className="btn-primary">
+                    <Link to={`/book-reading/${book.id}`} className="btn-primary">
                       <BookOpen size={16} />
                       Ler Agora
                     </Link>
@@ -457,7 +457,7 @@ const errorStyles = `
 const getStyles = () => `
   .books-page {
     min-height: 100vh;
-    background: #ccc;
+    background: #fff;
     padding: 20px 0 100px;
   }
 
