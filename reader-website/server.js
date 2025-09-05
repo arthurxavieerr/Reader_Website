@@ -93,18 +93,21 @@ const requireAdmin = async (req, res, next) => {
 // Função para log de ações administrativas
 const logAdminAction = async (adminId, adminName, action, targetId = null, targetType = null, details = null, req) => {
   try {
-    await prisma.adminLog.create({
-      data: {
-        adminId,
-        adminName,
-        action,
-        targetId,
-        targetType,
-        details: details ? JSON.stringify(details) : null,
-        ipAddress: req.ip || 'unknown',
-        userAgent: req.get('User-Agent') || null,
-      }
-    });
+    // Verificar se a tabela AdminLog existe antes de tentar criar
+    if (prisma.adminLog) {
+      await prisma.adminLog.create({
+        data: {
+          adminId,
+          adminName,
+          action,
+          targetId,
+          targetType,
+          details: details ? JSON.stringify(details) : null,
+          ipAddress: req.ip || 'unknown',
+          userAgent: req.get('User-Agent') || null,
+        }
+      });
+    }
   } catch (error) {
     console.error('Erro ao criar log administrativo:', error);
   }
@@ -212,6 +215,11 @@ app.post('/api/auth/login', async (req, res) => {
         success: false, 
         error: `Conta suspensa: ${user.suspendedReason || 'Violação dos termos de uso'}` 
       });
+    }
+
+    // Verificar se o usuário tem senha cadastrada
+    if (!user.passwordHash) {
+      return res.status(401).json({ success: false, error: 'Email ou senha inválidos' });
     }
 
     const isValidPassword = await bcrypt.compare(password, user.passwordHash);
@@ -481,332 +489,22 @@ app.patch('/api/admin/users/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// DELETE /api/admin/users/:id - Suspender/deletar usuário
-app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
-  try {
-    const admin = req.adminUser;
-    const { id } = req.params;
-    const { action = 'suspend', reason } = req.body;
-
-    const existingUser = await prisma.user.findUnique({
-      where: { id }
-    });
-
-    if (!existingUser) {
-      return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
-    }
-
-    if (existingUser.isAdmin) {
-      return res.status(403).json({ success: false, error: 'Não é possível suspender administradores' });
-    }
-
-    if (action === 'suspend') {
-      const updatedUser = await prisma.user.update({
-        where: { id },
-        data: {
-          isSuspended: true,
-          suspendedReason: reason || 'Suspenso pelo administrador'
-        }
-      });
-
-      await logAdminAction(admin.id, admin.name, 'SUSPEND_USER', id, 'user', { reason }, req);
-
-      const publicUser = toPublicUser(updatedUser);
-      res.json({ success: true, data: { user: publicUser } });
-    } else if (action === 'delete') {
-      await prisma.user.delete({
-        where: { id }
-      });
-
-      await logAdminAction(admin.id, admin.name, 'DELETE_USER', id, 'user', { reason }, req);
-
-      res.json({ success: true, message: 'Usuário deletado com sucesso' });
-    } else {
-      res.status(400).json({ success: false, error: 'Ação inválida' });
-    }
-  } catch (error) {
-    console.error('Admin delete user error:', error);
-    res.status(500).json({ success: false, error: 'Erro interno do servidor' });
-  }
-});
-
-// GET /api/admin/withdrawals - Listar saques
-app.get('/api/admin/withdrawals', requireAdmin, async (req, res) => {
-  try {
-    const admin = req.adminUser;
-    const { page = 1, limit = 10, status = 'all' } = req.query;
-    
-    await logAdminAction(admin.id, admin.name, 'VIEW_WITHDRAWAL', null, 'withdrawal_list', { status }, req);
-
-    // Se a tabela withdrawal não existir, retornar lista vazia
-    if (!prisma.withdrawal) {
-      return res.json({
-        success: true,
-        data: {
-          withdrawals: [],
-          pagination: {
-            page: parseInt(page),
-            limit: parseInt(limit),
-            total: 0,
-            totalPages: 0
-          }
-        }
-      });
-    }
-
-    const where = {};
-    if (status !== 'all') {
-      where.status = status.toUpperCase();
-    }
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    const [withdrawals, total] = await Promise.all([
-      prisma.withdrawal.findMany({
-        where,
-        skip,
-        take: parseInt(limit),
-        orderBy: { requestedAt: 'desc' },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              planType: true
-            }
-          }
-        }
-      }),
-      prisma.withdrawal.count({ where })
-    ]);
-
-    res.json({
-      success: true,
-      data: {
-        withdrawals,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          totalPages: Math.ceil(total / parseInt(limit))
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Admin withdrawals error:', error);
-    res.status(500).json({ success: false, error: 'Erro interno do servidor' });
-  }
-});
-
-// PATCH /api/admin/withdrawals/:id - Aprovar/rejeitar saque
-app.patch('/api/admin/withdrawals/:id', requireAdmin, async (req, res) => {
-  try {
-    const admin = req.adminUser;
-    const { id } = req.params;
-    const { action, reason } = req.body;
-
-    if (!prisma.withdrawal) {
-      return res.status(404).json({ success: false, error: 'Sistema de saques não disponível' });
-    }
-
-    const withdrawal = await prisma.withdrawal.findUnique({
-      where: { id },
-      include: { user: true }
-    });
-
-    if (!withdrawal) {
-      return res.status(404).json({ success: false, error: 'Saque não encontrado' });
-    }
-
-    if (withdrawal.status !== 'PENDING') {
-      return res.status(400).json({ success: false, error: 'Saque já foi processado' });
-    }
-
-    let updateData = {
-      processedAt: new Date(),
-      processedBy: admin.id
-    };
-
-    if (action === 'approve') {
-      updateData.status = 'APPROVED';
-      await logAdminAction(admin.id, admin.name, 'APPROVE_WITHDRAWAL', id, 'withdrawal', null, req);
-    } else if (action === 'reject') {
-      updateData.status = 'REJECTED';
-      updateData.rejectionReason = reason;
-      
-      // Devolver o dinheiro para o usuário
-      await prisma.user.update({
-        where: { id: withdrawal.userId },
-        data: {
-          balance: { increment: withdrawal.amount }
-        }
-      });
-
-      await logAdminAction(admin.id, admin.name, 'REJECT_WITHDRAWAL', id, 'withdrawal', { reason }, req);
-    } else {
-      return res.status(400).json({ success: false, error: 'Ação inválida' });
-    }
-
-    const updatedWithdrawal = await prisma.withdrawal.update({
-      where: { id },
-      data: updateData,
-      include: { user: true }
-    });
-
-    res.json({ success: true, data: { withdrawal: updatedWithdrawal } });
-  } catch (error) {
-    console.error('Admin withdrawal action error:', error);
-    res.status(500).json({ success: false, error: 'Erro interno do servidor' });
-  }
-});
-
-// GET /api/admin/analytics - Analytics detalhados
-app.get('/api/admin/analytics', requireAdmin, async (req, res) => {
-  try {
-    const admin = req.adminUser;
-    const { period = '30d' } = req.query;
-    
-    await logAdminAction(admin.id, admin.name, 'VIEW_ANALYTICS', null, 'analytics', { period }, req);
-
-    // Calcular data de início baseada no período
-    let startDate;
-    switch (period) {
-      case '7d':
-        startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case '30d':
-        startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-        break;
-      case '90d':
-        startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-        break;
-      default:
-        startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    }
-
-    // Buscar dados para analytics
-    const [
-      newUsers,
-      totalRevenue,
-      readingStats,
-      userGrowth,
-      planDistribution
-    ] = await Promise.all([
-      // Novos usuários no período
-      prisma.user.count({
-        where: {
-          createdAt: { gte: startDate }
-        }
-      }),
-      
-      // Receita estimada (premium users)
-      prisma.user.count({ where: { planType: 'PREMIUM' } }).then(count => count * 2990),
-      
-      // Estatísticas de leitura (se existir)
-      prisma.readingSession ? prisma.readingSession.count({
-        where: {
-          startedAt: { gte: startDate }
-        }
-      }).catch(() => 0) : Promise.resolve(0),
-      
-      // Crescimento de usuários (últimos 7 dias)
-      prisma.user.groupBy({
-        by: ['createdAt'],
-        where: {
-          createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
-        },
-        _count: true
-      }).catch(() => []),
-      
-      // Distribuição de planos
-      prisma.user.groupBy({
-        by: ['planType'],
-        _count: true
-      })
-    ]);
-
-    const analytics = {
-      period,
-      newUsers,
-      totalRevenue,
-      readingSessions: readingStats,
-      userGrowth,
-      planDistribution: planDistribution.map(item => ({
-        planType: item.planType.toLowerCase(),
-        count: item._count
-      }))
-    };
-
-    res.json({ success: true, data: analytics });
-  } catch (error) {
-    console.error('Admin analytics error:', error);
-    res.status(500).json({ success: false, error: 'Erro interno do servidor' });
-  }
-});
-
-// GET /api/admin/logs - Logs de ações administrativas
-app.get('/api/admin/logs', requireAdmin, async (req, res) => {
-  try {
-    const admin = req.adminUser;
-    const { page = 1, limit = 20 } = req.query;
-    
-    // Se a tabela adminLog não existir, retornar lista vazia
-    if (!prisma.adminLog) {
-      return res.json({
-        success: true,
-        data: {
-          logs: [],
-          pagination: {
-            page: parseInt(page),
-            limit: parseInt(limit),
-            total: 0,
-            totalPages: 0
-          }
-        }
-      });
-    }
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    const [logs, total] = await Promise.all([
-      prisma.adminLog.findMany({
-        skip,
-        take: parseInt(limit),
-        orderBy: { timestamp: 'desc' }
-      }),
-      prisma.adminLog.count()
-    ]);
-
-    res.json({
-      success: true,
-      data: {
-        logs,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          totalPages: Math.ceil(total / parseInt(limit))
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Admin logs error:', error);
-    res.status(500).json({ success: false, error: 'Erro interno do servidor' });
-  }
-});
-
 // ============================================
-// INICIALIZAÇÃO DO SERVIDOR
+// EXPORT PARA VERCEL
 // ============================================
 
-// Iniciar servidor
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`🚀 API rodando em http://localhost:${PORT}`);
-  console.log(`📚 Teste: http://localhost:${PORT}/api/books`);
-  console.log(`👑 Admin: http://localhost:${PORT}/api/admin/dashboard`);
-});
+// Para desenvolvimento local
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 3001;
+  app.listen(PORT, () => {
+    console.log(`API rodando em http://localhost:${PORT}`);
+    console.log(`Teste: http://localhost:${PORT}/api/books`);
+    console.log(`Admin: http://localhost:${PORT}/api/admin/dashboard`);
+  });
+}
+
+// Export para Vercel (serverless)
+module.exports = app;
 
 // Lidar com shutdown graceful
 process.on('SIGINT', async () => {
