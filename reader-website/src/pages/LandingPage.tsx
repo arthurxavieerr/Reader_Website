@@ -83,7 +83,7 @@ const LandingPage: React.FC = () => {
                 backgroundPosition: 'center',
                 backgroundRepeat: 'no-repeat',
                 width: '100%',
-                height: '100vh' // opcional
+                height: 'fit-content' // opcional
             }}>
         <header className="landing-header">
             <div className="container">
