@@ -545,7 +545,7 @@ const getStyles = () => `
   }
 
   .stat-item {
-    background: #white;
+    background: #fef9f6;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
     backdrop-filter: blur(10px);
     border-radius: 12px;
