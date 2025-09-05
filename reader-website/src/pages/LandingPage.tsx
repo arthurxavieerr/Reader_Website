@@ -194,7 +194,7 @@ const LandingPage: React.FC = () => {
                   </div>
                   <div className="testimonial-info">
                     <h4>{testimonial.name}</h4>
-                    <p>{testimonial.role}</p>
+                    {/* <p>{testimonial.role}</p> */}
                     <div className="rating">
                       {[...Array(testimonial.rating)].map((_, i) => (
                         <svg key={i} xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-star">
@@ -205,9 +205,6 @@ const LandingPage: React.FC = () => {
                   </div>
                 </div>
                 <p className="testimonial-comment">"{testimonial.comment}"</p>
-                <div className="testimonial-footer">
-                  <span>Leia mais: R$ {(Math.random() * 500 + 100).toFixed(0)}</span>
-                </div>
               </div>
             ))}
           </div>
