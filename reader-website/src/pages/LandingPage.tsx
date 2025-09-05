@@ -189,7 +189,6 @@ const LandingPage: React.FC = () => {
                     <img 
                       src={testimonial.avatar} 
                       alt={testimonial.name} 
-                      style={{ width: '100px', height: '100px', borderRadius: '50%' }} 
                     />
                   </div>
                   <div className="testimonial-info">
