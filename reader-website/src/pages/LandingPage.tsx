@@ -179,8 +179,8 @@ const LandingPage: React.FC = () => {
             {testimonials.map((testimonial, index) => (
               <div key={index} className="testimonial-card">
                 <div className="testimonial-header">
-                  <div className="testimonial-avatar">
-                    {testimonial.avatar}
+                  <div className= "testimonial-avatar">
+                    <img src="./assets/depoimentos/depoimento1.png" alt={testimonial.name} style={{ width: '100%', height: '100%', borderRadius: '50%' }} />
                   </div>
                   <div className="testimonial-info">
                     <h4>{testimonial.name}</h4>
