@@ -189,6 +189,7 @@ const LandingPage: React.FC = () => {
                     <img 
                       src={testimonial.avatar} 
                       alt={testimonial.name} 
+                      style={{ width: '50px', height: '50px', borderRadius: '50%' }} 
                     />
                   </div>
                   <div className="testimonial-info">
@@ -488,6 +489,7 @@ const LandingPage: React.FC = () => {
         }
         
         .testimonial-avatar {
+          display: flex;
           width: 50px; /* Ajuste o tamanho conforme necessário */
           height: 50px; /* Certifique-se de que a altura seja a mesma */
           border-radius: 50%; /* Tornando a imagem redonda */
