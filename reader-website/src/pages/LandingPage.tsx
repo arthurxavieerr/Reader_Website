@@ -8,9 +8,9 @@ import estrelaIcon from '../assets/icons/estrela.png';
 import dinheiroIcon from '../assets/icons/dinheiro.png';
 import fundo from '../assets/fundo.png';
 import logo from '../assets/icons/logo.png'
-import depoimento1 from './assets/depoimentos/depoimento1.png';
-import depoimento2 from './assets/depoimentos/depoimento2.png';
-import depoimento3 from './assets/depoimentos/depoimento3.png';
+import depoimento1 from '../assets/depoimentos/depoimento1.jpg';
+import depoimento2 from '../assets/depoimentos/depoimento2.png';
+import depoimento3 from '../assets/depoimentos/depoimento3.png';
 
 
 const LandingPage: React.FC = () => {
