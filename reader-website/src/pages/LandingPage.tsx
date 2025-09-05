@@ -8,6 +8,9 @@ import estrelaIcon from '../assets/icons/estrela.png';
 import dinheiroIcon from '../assets/icons/dinheiro.png';
 import fundo from '../assets/fundo.png';
 import logo from '../assets/icons/logo.png'
+import depoimento1 from './assets/depoimentos/depoimento1.png';
+import depoimento2 from './assets/depoimentos/depoimento2.png';
+import depoimento3 from './assets/depoimentos/depoimento3.png';
 
 
 const LandingPage: React.FC = () => {
@@ -20,27 +23,29 @@ const LandingPage: React.FC = () => {
 
   const testimonials = [
     {
-      name: 'Alex Xalis',
-      role: 'Estudante',
+      name: "Alex Xalis",
+      role: "Estudante",
       rating: 5,
-      comment: 'Consegui pagar até 250 reais lendo uns 30 livros que eu encontraram aqui. A plataforma é confiável e realmente paga.',
-      avatar: 'A'
+      avatar: depoimento1, // Imagem do depoimento 1
+      comment: "Consegui pagar até 250 reais lendo uns 30 livros que eu encontrei aqui. A plataforma é confiável e realmente paga."
     },
     {
-      name: 'Leonardo Santagru',
-      role: 'Professor',
+      name: "Leonardo Santagru",
+      role: "Professor",
       rating: 5,
-      comment: 'Gosto muito dessa forma diferente. Consigo pagar minhas contas facilmente e amo ler mesmo quando não há vista.',
-      avatar: 'L'
+      avatar: depoimento2, // Imagem do depoimento 2
+      comment: "Gosto muito dessa forma diferente. Consigo pagar minhas contas facilmente e amo ler mesmo quando não há vista."
     },
     {
-      name: 'Michele Sabremski',
-      role: 'Bibliotecária',
+      name: "Michele Sabremski",
+      role: "Bibliotecária",
       rating: 5,
-      comment: 'Plataforma incrível, ganha dinheiro e ainda ganha conhecimento mesmo quando viajo, consegui 3 anos de vida financeira e nunca mais precisei de outro emprego.',
-      avatar: 'M'
-    }
+      avatar: depoimento3, // Imagem do depoimento 3
+      comment: "Plataforma incrível, ganha dinheiro e ainda ganha conhecimento mesmo quando viajo, consegui 3 anos de vida financeira e nunca mais precisei de outro emprego."
+    },
+    // Outros depoimentos...
   ];
+
 
     const howItWorks = [
     {
@@ -179,15 +184,22 @@ const LandingPage: React.FC = () => {
             {testimonials.map((testimonial, index) => (
               <div key={index} className="testimonial-card">
                 <div className="testimonial-header">
-                  <div className= "testimonial-avatar">
-                    <img src="./assets/depoimentos/depoimento1.png" alt={testimonial.name} style={{ width: '100%', height: '100%', borderRadius: '50%' }} />
+                  <div className="testimonial-avatar">
+                    {/* Usando a imagem específica para cada depoimento */}
+                    <img 
+                      src={testimonial.avatar} 
+                      alt={testimonial.name} 
+                      style={{ width: '100px', height: '100px', borderRadius: '50%' }} 
+                    />
                   </div>
                   <div className="testimonial-info">
                     <h4>{testimonial.name}</h4>
                     <p>{testimonial.role}</p>
                     <div className="rating">
                       {[...Array(testimonial.rating)].map((_, i) => (
-                        <Star key={i} size={16} fill="currentColor" />
+                        <svg key={i} xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-star">
+                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                        </svg>
                       ))}
                     </div>
                   </div>
