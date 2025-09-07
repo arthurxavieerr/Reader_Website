@@ -14,10 +14,7 @@ export interface User {
   commitment?: 'committed' | 'curious';
   incomeRange?: 'low' | 'medium' | 'high' | 'unemployed';
   profileImage?: string | null;
-  isSuspended?: boolean;
-  suspendedReason?: string;
   createdAt: string;
-  lastLoginAt?: string;
 }
 
 export interface Book {
@@ -102,7 +99,7 @@ export interface Level {
   pointsRequired: number;
   booksUnlocked: number;
   color: string;
-  isAdmin?: boolean;
+  isAdmin?: boolean; // Nova propriedade para identificar nível admin
 }
 
 export interface OnboardingData {
@@ -112,8 +109,16 @@ export interface OnboardingData {
 
 export interface AuthState {
   user: User | null;
-  isLoading: boolean;
+  loading: boolean;
   error: string | null;
+}
+
+export interface AuthActions {
+  login: (email: string, password: string) => Promise<void>;
+  register: (userData: RegisterData) => Promise<void>;
+  logout: () => void;
+  completeOnboarding: (data: OnboardingData) => Promise<void>;
+  updateProfile: (data: Partial<User>) => Promise<void>;
 }
 
 export interface RegisterData {
@@ -148,5 +153,113 @@ export interface PlatformStats {
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
+  message?: string;
   error?: string;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+// Constants
+export const INCOME_RANGES = {
+  low: 'R$ 1.000 - R$ 10.000',
+  medium: 'R$ 10.000 - R$ 50.000',
+  high: 'R$ 100.000+',
+  unemployed: 'Desempregado(a)'
+} as const;
+
+export const PLAN_BENEFITS = {
+  free: {
+    pointsPerBook: 10,
+    pointsPerReview: 3,
+    pointsPerComment: 1,
+    booksPerLevel: 1,
+    minWithdrawal: 12000, // R$ 120 (em centavos)
+  },
+  premium: {
+    pointsPerBook: 30,
+    pointsPerReview: 9,
+    pointsPerComment: 3,
+    booksPerLevel: 3,
+    minWithdrawal: 5000, // R$ 50 (em centavos)
+  }
+} as const;
+
+// Níveis do sistema com nível Admin especial
+export const LEVELS: Level[] = [
+  { level: 0, name: 'Bronze', pointsRequired: 0, booksUnlocked: 1, color: '#cd7f32' },
+  { level: 1, name: 'Prata', pointsRequired: 100, booksUnlocked: 2, color: '#c0c0c0' },
+  { level: 2, name: 'Ouro', pointsRequired: 300, booksUnlocked: 3, color: '#ffd700' },
+  { level: 3, name: 'Platina', pointsRequired: 600, booksUnlocked: 4, color: '#e5e4e2' },
+  { level: 4, name: 'Diamante', pointsRequired: 1000, booksUnlocked: 5, color: '#b9f2ff' },
+  { level: 5, name: 'Mestre', pointsRequired: 1500, booksUnlocked: 6, color: '#895aed' },
+  { level: 99, name: 'Admin', pointsRequired: 0, booksUnlocked: 999, color: '#dc2626', isAdmin: true }
+];
+
+// Função utilitária para obter informações do nível
+export const getLevelInfo = (level: number, isAdmin: boolean = false): Level => {
+  if (isAdmin) {
+    return LEVELS.find(l => l.isAdmin) || LEVELS[0];
+  }
+  return LEVELS.find(l => l.level === level && !l.isAdmin) || LEVELS[0];
+};
+
+// Função para verificar se um nível é administrativo
+export const isAdminLevel = (level: number): boolean => {
+  return LEVELS.find(l => l.level === level)?.isAdmin || false;
+};
+
+// Função para obter o próximo nível (excluindo admin)
+export const getNextLevel = (currentLevel: number): Level | null => {
+  const regularLevels = LEVELS.filter(l => !l.isAdmin);
+  const currentIndex = regularLevels.findIndex(l => l.level === currentLevel);
+  return currentIndex >= 0 && currentIndex < regularLevels.length - 1 
+    ? regularLevels[currentIndex + 1] 
+    : null;
+};
+
+// Tipos para gerenciamento de permissões admin
+export interface AdminPermissions {
+  canManageUsers: boolean;
+  canManageBooks: boolean;
+  canProcessWithdrawals: boolean;
+  canViewAnalytics: boolean;
+  canModifySettings: boolean;
+  canAccessSystemLogs: boolean;
+}
+
+// Permissões padrão para administradores
+export const DEFAULT_ADMIN_PERMISSIONS: AdminPermissions = {
+  canManageUsers: true,
+  canManageBooks: true,
+  canProcessWithdrawals: true,
+  canViewAnalytics: true,
+  canModifySettings: true,
+  canAccessSystemLogs: true
+};
+
+// Tipos para ações administrativas
+export type AdminAction = 
+  | 'view_user' | 'edit_user' | 'suspend_user' | 'delete_user'
+  | 'view_book' | 'edit_book' | 'activate_book' | 'deactivate_book'
+  | 'approve_withdrawal' | 'reject_withdrawal' | 'view_withdrawal'
+  | 'view_analytics' | 'export_data'
+  | 'modify_settings' | 'view_logs';
+
+// Interface para logs de ações administrativas
+export interface AdminLog {
+  id: string;
+  adminId: string;
+  adminName: string;
+  action: AdminAction;
+  targetId?: string;
+  targetType?: 'user' | 'book' | 'withdrawal' | 'system';
+  details?: string;
+  timestamp: string;
+  ipAddress?: string;
 }

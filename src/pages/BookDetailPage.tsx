@@ -1,30 +1,46 @@
-// src/pages/BookDetailPage.tsx - MIGRADO PARA API REAL
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Users, Star, Clock, BookOpen, Award, Zap, Heart, TrendingUp, Eye, Target } from 'lucide-react';
-import { apiService } from '../services/api';
 
 // Tipos para a API
+interface ReviewFromAPI {
+  id: string;
+  rating: number;
+  comment?: string;
+  createdAt: string;
+  user: {
+    name: string;
+    level: number;
+  };
+}
+
 interface BookDetailFromAPI {
   id: string;
   title: string;
   author: string;
   genre: string;
   synopsis: string;
-  baseRewardMoney: number;
+  coverImage?: string;
+  rewardMoney: number;
   rewardPoints: number;
   reviewsCount: number;
   averageRating: number;
-  estimatedReadTime: number; // em segundos
-  wordCount: number;
-  pageCount: number;
+  estimatedReadTime: number; // em minutos
+  difficulty: string;
+  isAvailable: boolean;
   requiredLevel: number;
-  isInitialBook: boolean;
+  hasReceivedReward: boolean;
+  canRead: boolean;
   createdAt: string;
-  // Campos calculados
-  rewardMoney?: number;
-  isAvailable?: boolean;
-  canRead?: boolean;
+  reviews: ReviewFromAPI[];
+}
+
+interface BookDetailAPIResponse {
+  success: boolean;
+  data: {
+    book: BookDetailFromAPI;
+  };
+  error?: string;
 }
 
 const BookDetailPage: React.FC = () => {
@@ -40,32 +56,29 @@ const BookDetailPage: React.FC = () => {
       if (!id) return;
 
       try {
-        console.log('📖 Buscando livro da API real...');
+        const token = localStorage.getItem('beta-reader-token');
+        const headers: HeadersInit = {
+          'Content-Type': 'application/json',
+        };
         
-        const response = await apiService.getBookById(id);
-        
-        if (response.success && response.data.book) {
-          const bookData = response.data.book;
-          
-          // Calcular campos adicionais
-          const userLevel = getUserLevel(); // Pegar do localStorage ou contexto
-          const userPlan = getUserPlan();
-          
-          const processedBook: BookDetailFromAPI = {
-            ...bookData,
-            rewardMoney: calculateUserReward(bookData.baseRewardMoney, userPlan),
-            isAvailable: bookData.requiredLevel <= userLevel,
-            canRead: bookData.requiredLevel <= userLevel
-          };
-          
-          setBook(processedBook);
-          console.log('✅ Livro carregado:', processedBook.title);
-        } else {
-          setError('Livro não encontrado');
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
         }
-      } catch (err: any) {
-        console.error('❌ Erro ao buscar livro:', err);
-        setError(err.message || 'Erro de conexão com o servidor');
+
+        const response = await fetch(`http://localhost:3001/api/books/${id}`, {
+          headers
+        });
+
+        const data: BookDetailAPIResponse = await response.json();
+
+        if (data.success && data.data.book) {
+          setBook(data.data.book);
+        } else {
+          setError(data.error || 'Livro não encontrado');
+        }
+      } catch (err) {
+        console.error('Erro ao buscar livro:', err);
+        setError('Erro de conexão com o servidor');
       } finally {
         setLoading(false);
       }
@@ -73,66 +86,6 @@ const BookDetailPage: React.FC = () => {
 
     fetchBook();
   }, [id]);
-
-  // Funções auxiliares
-  const getUserLevel = (): number => {
-    try {
-      const userData = localStorage.getItem('beta-reader-user');
-      if (userData) {
-        const user = JSON.parse(userData);
-        return user.level || 0;
-      }
-    } catch (error) {
-      console.error('Erro ao obter nível do usuário:', error);
-    }
-    return 0;
-  };
-
-  const getUserPlan = (): 'free' | 'premium' => {
-    try {
-      const userData = localStorage.getItem('beta-reader-user');
-      if (userData) {
-        const user = JSON.parse(userData);
-        return user.planType || 'free';
-      }
-    } catch (error) {
-      console.error('Erro ao obter plano do usuário:', error);
-    }
-    return 'free';
-  };
-
-  const calculateUserReward = (baseRewardMoney: number, planType: 'free' | 'premium'): number => {
-    // baseRewardMoney está em centavos, converter para reais
-    const rewardInReais = baseRewardMoney / 100;
-    
-    if (planType === 'premium') {
-      return rewardInReais * 1.5; // 50% a mais
-    }
-    
-    return rewardInReais;
-  };
-
-  const formatCurrency = (value: number) => {
-    return `R$ ${value.toFixed(2).replace('.', ',')}`;
-  };
-
-  const formatReadTime = (timeInSeconds: number) => {
-    const minutes = Math.ceil(timeInSeconds / 60);
-    return `${minutes} min`;
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('pt-BR');
-  };
-
-  const renderStars = (rating: number) => {
-    return Array.from({ length: 5 }, (_, i) => (
-      <Star
-        key={i}
-        className={`w-4 h-4 ${i < Math.floor(rating) ? 'text-yellow-400 fill-current' : 'text-gray-300'}`}
-      />
-    ));
-  };
 
   // Estados de loading e erro
   if (loading) {
@@ -157,9 +110,8 @@ const BookDetailPage: React.FC = () => {
           <div className="error-state">
             <h2>Livro não encontrado</h2>
             <p>{error || 'O livro que você está procurando não existe.'}</p>
-            <Link to="/dashboard" className="back-button">
-              <ArrowLeft className="w-4 h-4" />
-              Voltar ao Dashboard
+            <Link to="/books" className="back-to-books">
+              Voltar para biblioteca
             </Link>
           </div>
         </div>
@@ -168,424 +120,832 @@ const BookDetailPage: React.FC = () => {
     );
   }
 
+  const formatCurrency = (value: number) => {
+    return `R$ ${(value / 100).toFixed(2).replace('.', ',')}`;
+  };
+
+  const toggleFavorite = () => {
+    setIsFavorited(!isFavorited);
+  };
+
+  // Gerar emoji baseado no gênero
+  const getBookEmoji = (genre: string): string => {
+    if (genre.includes('Fantasia')) return '🏰';
+    if (genre.includes('Thriller') || genre.includes('Tecnológico')) return '💻';
+    if (genre.includes('Romance')) return '🌸';
+    if (genre.includes('Mistério') || genre.includes('Detetive')) return '🔍';
+    return '📚';
+  };
+
+  // Gerar tags fictícias baseadas no gênero (já que a API não retorna tags)
+  const generateTags = (genre: string): string[] => {
+    if (genre.includes('Fantasia')) return ['Magia', 'Aventura', 'Mistério'];
+    if (genre.includes('Thriller')) return ['Suspense', 'Tecnologia', 'Ação'];
+    if (genre.includes('Romance')) return ['Amor', 'Emoção', 'Drama'];
+    if (genre.includes('Mistério')) return ['Investigação', 'Suspense', 'Crime'];
+    return ['Ficção', 'Literatura'];
+  };
+
+  const bookEmoji = getBookEmoji(book.genre);
+  const bookTags = generateTags(book.genre);
+  const isPopular = book.reviewsCount > 50000;
+
   return (
     <div className="book-detail-page">
       <div className="page-container">
-        {/* Header com navegação */}
-        <div className="page-header">
-          <Link to="/dashboard" className="back-button">
-            <ArrowLeft className="w-5 h-5" />
-            Voltar
+        {/* Header de navegação */}
+        <div className="detail-header">
+          <Link to="/books" className="back-button">
+            <ArrowLeft size={20} />
+            <span>Voltar</span>
           </Link>
-          <button
-            onClick={() => setIsFavorited(!isFavorited)}
-            className={`favorite-button ${isFavorited ? 'favorited' : ''}`}
-            aria-label={isFavorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
-            title={isFavorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
-          >
-            <Heart className={`w-5 h-5 ${isFavorited ? 'fill-current' : ''}`} />
-          </button>
+          
+          <div className="header-actions">
+            <button 
+              className={`favorite-button ${isFavorited ? 'favorited' : ''}`}
+              onClick={toggleFavorite}
+              aria-label={isFavorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+            >
+              <Heart size={18} fill={isFavorited ? 'currentColor' : 'none'} />
+            </button>
+          </div>
         </div>
 
-        {/* Informações principais do livro */}
-        <div className="book-main-info">
-          <div className="book-cover">
-            <div className="cover-placeholder">
-              <BookOpen className="w-12 h-12" />
-            </div>
-          </div>
-
-          <div className="book-details">
-            <h1 className="book-title">{book.title}</h1>
-            <p className="book-author">por {book.author}</p>
-            <p className="book-genre">{book.genre}</p>
-
-            <div className="book-stats">
-              <div className="stat-item">
-                <div className="stat-icons">
-                  {renderStars(book.averageRating)}
+        {/* Card principal */}
+        <div className="book-detail-card">
+          {/* Seção do cabeçalho */}
+          <div className="book-hero-section">
+            <div className="book-cover-area">
+              <div className="book-cover-large">
+                <span className="cover-emoji">{bookEmoji}</span>
+                
+                {/* Badges da capa */}
+                <div className="cover-badges">
+                  <div className="rating-badge">
+                    <Star size={12} fill="currentColor" />
+                    <span>{book.averageRating}</span>
+                  </div>
+                  {isPopular && (
+                    <div className="trending-badge">
+                      <TrendingUp size={12} />
+                      <span>Popular</span>
+                    </div>
+                  )}
+                  {book.hasReceivedReward && (
+                    <div className="completed-badge">
+                      <Award size={12} />
+                      <span>Concluído</span>
+                    </div>
+                  )}
                 </div>
-                <span className="stat-text">
-                  {book.averageRating.toFixed(1)} • {book.reviewsCount.toLocaleString()} avaliações
-                </span>
-              </div>
-
-              <div className="stat-item">
-                <Clock className="w-4 h-4 text-gray-500" />
-                <span className="stat-text">{formatReadTime(book.estimatedReadTime)}</span>
-              </div>
-
-              <div className="stat-item">
-                <BookOpen className="w-4 h-4 text-gray-500" />
-                <span className="stat-text">{book.pageCount} páginas • {book.wordCount.toLocaleString()} palavras</span>
               </div>
             </div>
-
-            {/* Recompensa */}
-            <div className="reward-info">
-              <div className="reward-money">
-                <Award className="w-5 h-5 text-yellow-500" />
-                <span className="reward-amount">
-                  {formatCurrency(book.rewardMoney || 0)}
-                </span>
-                <span className="reward-label">por leitura completa</span>
+            
+            <div className="book-info-area">
+              <div className="book-title-section">
+                <h1 className="book-title">{book.title}</h1>
+                <p className="book-author">por {book.author}</p>
+                
+                <div className="book-meta-tags">
+                  <span className="genre-tag">{book.genre}</span>
+                  <span className={`difficulty-tag difficulty-${book.difficulty.toLowerCase()}`}>
+                    {book.difficulty}
+                  </span>
+                </div>
               </div>
               
-              {book.rewardPoints && (
-                <div className="reward-points">
-                  <Zap className="w-4 h-4 text-blue-500" />
-                  <span>{book.rewardPoints} pontos</span>
+              {/* Stats rápidas */}
+              <div className="book-quick-stats">
+                <div className="stat-item">
+                  <Clock size={16} />
+                  <span>{book.estimatedReadTime} min de leitura</span>
                 </div>
-              )}
+                <div className="stat-item">
+                  <Users size={16} />
+                  <span>{book.reviewsCount.toLocaleString()} avaliações</span>
+                </div>
+                <div className="stat-item">
+                  <BookOpen size={16} />
+                  <span>Disponível para leitura</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Seção de sinopse */}
+          <div className="synopsis-section">
+            <h3 className="section-title">
+              <Eye size={18} />
+              Sinopse
+            </h3>
+            <p className="synopsis-text">{book.synopsis}</p>
+            
+            {/* Tags do livro */}
+            <div className="book-tags">
+              {bookTags.map((tag, index) => (
+                <span key={index} className="tag">{tag}</span>
+              ))}
+            </div>
+          </div>
+
+          {/* Seção de recompensa */}
+          <div className="reward-section">
+            <div className="reward-card">
+              <div className="reward-header">
+                <Target size={20} />
+                <h3>Sua Recompensa</h3>
+              </div>
+              
+              <div className="reward-content">
+                <div className="reward-amount-display">
+                  <span className="reward-value">{formatCurrency(book.rewardMoney)}</span>
+                  <span className="reward-label">
+                    {book.hasReceivedReward ? 'já recebido' : 'por avaliação completa'}
+                  </span>
+                </div>
+                
+                <div className="bonus-info">
+                  <div className="bonus-item">
+                    <Award size={16} />
+                    <span>+{book.rewardPoints} pontos XP</span>
+                  </div>
+                  <div className="bonus-item">
+                    <Zap size={16} />
+                    <span>Progresso no nível</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Botão de ação */}
+          <div className="action-section">
+            {book.canRead ? (
+              <Link to={`/books/${id}/read`} className="read-button">
+                <BookOpen size={20} />
+                <span>{book.hasReceivedReward ? 'Ler novamente' : 'Ler e Avaliar'}</span>
+              </Link>
+            ) : (
+              <div className="read-button disabled">
+                <BookOpen size={20} />
+                <span>Nível {book.requiredLevel} necessário</span>
+              </div>
+            )}
+            
+            <div className="action-info">
+              <p>
+                {book.canRead 
+                  ? (book.hasReceivedReward 
+                      ? 'Você já avaliou este livro e recebeu a recompensa'
+                      : 'Leia o livro completo e deixe sua avaliação para receber a recompensa')
+                  : `Alcance o nível ${book.requiredLevel} para desbloquear este livro`
+                }
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Sinopse */}
-        <div className="book-synopsis">
-          <h2>Sinopse</h2>
-          <p>{book.synopsis}</p>
-        </div>
-
-        {/* Botão de ação */}
-        <div className="action-section">
-          {book.isAvailable ? (
-            <Link to={`/book/${book.id}/read`} className="read-button">
-              <BookOpen className="w-5 h-5" />
-              Começar Leitura
-            </Link>
-          ) : (
-            <div className="locked-info">
-              <Target className="w-5 h-5" />
-              <span>Disponível no nível {book.requiredLevel}</span>
+        {/* Avaliações dos usuários */}
+        {book.reviews && book.reviews.length > 0 && (
+          <div className="reviews-section">
+            <h3>Últimas Avaliações</h3>
+            <div className="reviews-list">
+              {book.reviews.slice(0, 3).map((review) => (
+                <div key={review.id} className="review-card">
+                  <div className="review-header">
+                    <div className="reviewer-info">
+                      <span className="reviewer-name">{review.user.name}</span>
+                      <span className="reviewer-level">Nível {review.user.level}</span>
+                    </div>
+                    <div className="review-rating">
+                      {[...Array(5)].map((_, i) => (
+                        <Star 
+                          key={i} 
+                          size={14} 
+                          fill={i < review.rating ? 'currentColor' : 'none'}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  {review.comment && (
+                    <p className="review-comment">{review.comment}</p>
+                  )}
+                  <span className="review-date">
+                    {new Date(review.createdAt).toLocaleDateString('pt-BR')}
+                  </span>
+                </div>
+              ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Informações adicionais */}
         <div className="additional-info">
           <div className="info-grid">
             <div className="info-item">
-              <strong>Nível necessário:</strong>
-              <span>{book.requiredLevel}</span>
+              <span className="info-label">Idioma</span>
+              <span className="info-value">Português</span>
             </div>
             <div className="info-item">
-              <strong>Publicado em:</strong>
-              <span>{formatDate(book.createdAt)}</span>
+              <span className="info-label">Publicado</span>
+              <span className="info-value">{new Date(book.createdAt).getFullYear()}</span>
             </div>
             <div className="info-item">
-              <strong>Livro inicial:</strong>
-              <span>{book.isInitialBook ? 'Sim' : 'Não'}</span>
+              <span className="info-label">Tempo estimado</span>
+              <span className="info-value">{book.estimatedReadTime} minutos</span>
+            </div>
+            <div className="info-item">
+              <span className="info-label">Avaliação</span>
+              <span className="info-value">{book.averageRating}/5</span>
             </div>
           </div>
         </div>
       </div>
-
-      <style>{pageStyles}</style>
+      
+      <style>{mainStyles}</style>
     </div>
   );
 };
 
-// Estilos CSS
+// Estilos separados para melhor organização
 const loadingStyles = `
   .loading-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 400px;
     text-align: center;
+    padding: 60px 20px;
   }
-
   .loading-spinner {
     width: 40px;
     height: 40px;
-    border: 3px solid #f3f4f6;
-    border-top: 3px solid #3b82f6;
+    border: 4px solid #e2e8f0;
+    border-top: 4px solid #8b5cf6;
     border-radius: 50%;
     animation: spin 1s linear infinite;
-    margin-bottom: 16px;
+    margin: 0 auto 20px;
   }
-
   @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+  }
+  .loading-state h2 {
+    color: #1e293b;
+    margin-bottom: 8px;
+  }
+  .loading-state p {
+    color: #64748b;
   }
 `;
 
 const errorStyles = `
   .error-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 400px;
     text-align: center;
+    padding: 60px 20px;
   }
-
   .error-state h2 {
-    color: #ef4444;
-    margin-bottom: 8px;
+    color: #dc2626;
+    margin-bottom: 16px;
   }
-
   .error-state p {
-    color: #6b7280;
+    color: #64748b;
     margin-bottom: 24px;
+  }
+  .back-to-books {
+    display: inline-block;
+    background: #8b5cf6;
+    color: white;
+    text-decoration: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-weight: 500;
+    transition: background 0.2s;
+  }
+  .back-to-books:hover {
+    background: #7c3aed;
   }
 `;
 
-const pageStyles = `
+const mainStyles = `
   .book-detail-page {
     min-height: 100vh;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 20px 0;
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    padding: 20px 0 40px 0;
   }
-
+  
   .page-container {
     max-width: 800px;
     margin: 0 auto;
-    padding: 0 20px;
+    padding: 0 24px;
   }
-
-  .page-header {
+  
+  /* Header */
+  .detail-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 32px;
   }
-
+  
   .back-button {
     display: flex;
     align-items: center;
     gap: 8px;
-    color: white;
+    color: #64748b;
     text-decoration: none;
+    font-size: 16px;
     font-weight: 500;
-    transition: opacity 0.2s;
+    padding: 12px 16px;
+    border-radius: 12px;
+    transition: all 0.2s ease;
+    background: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    border: 1px solid #e2e8f0;
   }
-
+  
   .back-button:hover {
-    opacity: 0.8;
+    background: #f8fafc;
+    color: #334155;
+    transform: translateX(-2px);
   }
-
-  .favorite-button {
-    background: rgba(255, 255, 255, 0.1);
-    border: none;
-    border-radius: 50%;
-    width: 48px;
-    height: 48px;
+  
+  .header-actions {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
+    gap: 12px;
+  }
+  
+  .favorite-button {
+    background: white;
+    border: 2px solid #e2e8f0;
+    padding: 12px;
+    border-radius: 12px;
     cursor: pointer;
-    transition: all 0.2s;
+    color: #64748b;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   }
-
+  
   .favorite-button:hover {
-    background: rgba(255, 255, 255, 0.2);
-  }
-
-  .favorite-button.favorited {
+    border-color: #ef4444;
     color: #ef4444;
   }
-
-  .book-main-info {
+  
+  .favorite-button.favorited {
+    border-color: #ef4444;
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+  }
+  
+  /* Card principal */
+  .book-detail-card {
     background: white;
-    border-radius: 16px;
+    border-radius: 24px;
     padding: 32px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e2e8f0;
     margin-bottom: 24px;
+  }
+  
+  /* Hero section */
+  .book-hero-section {
     display: flex;
     gap: 32px;
+    margin-bottom: 32px;
+    align-items: flex-start;
   }
-
-  .book-cover {
+  
+  .book-cover-area {
     flex-shrink: 0;
   }
-
-  .cover-placeholder {
+  
+  .book-cover-large {
+    position: relative;
     width: 160px;
-    height: 240px;
-    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-    border-radius: 12px;
+    height: 200px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  }
+  
+  .cover-emoji {
+    font-size: 64px;
+  }
+  
+  .cover-badges {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .rating-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #f59e0b;
     color: white;
+    padding: 6px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+  }
+  
+  .trending-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: linear-gradient(135deg, #ff6b6b, #ffa500);
+    color: white;
+    padding: 6px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
   }
 
-  .book-details {
+  .completed-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #10b981;
+    color: white;
+    padding: 6px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  
+  .book-info-area {
     flex: 1;
+    min-width: 0;
   }
-
-  .book-title {
-    font-size: 2rem;
-    font-weight: bold;
-    color: #1f2937;
-    margin-bottom: 8px;
-  }
-
-  .book-author {
-    font-size: 1.1rem;
-    color: #6b7280;
-    margin-bottom: 4px;
-  }
-
-  .book-genre {
-    font-size: 0.9rem;
-    color: #9ca3af;
+  
+  .book-title-section {
     margin-bottom: 24px;
   }
-
-  .book-stats {
+  
+  .book-title {
+    font-size: 32px;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 0 0 8px 0;
+    line-height: 1.2;
+  }
+  
+  .book-author {
+    font-size: 18px;
+    color: #64748b;
+    margin: 0 0 16px 0;
+    font-weight: 500;
+  }
+  
+  .book-meta-tags {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  
+  .genre-tag {
+    background: #fef3c7;
+    color: #d97706;
+    padding: 8px 16px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  
+  .difficulty-tag {
+    padding: 8px 16px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  
+  .difficulty-fácil {
+    background: #dcfce7;
+    color: #16a34a;
+  }
+  
+  .difficulty-médio {
+    background: #fef3c7;
+    color: #d97706;
+  }
+  
+  .difficulty-difícil {
+    background: #fee2e2;
+    color: #dc2626;
+  }
+  
+  .book-quick-stats {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    margin-bottom: 24px;
   }
-
+  
   .stat-item {
     display: flex;
     align-items: center;
+    gap: 10px;
+    color: #64748b;
+    font-size: 15px;
+    font-weight: 500;
+  }
+  
+  /* Synopsis */
+  .synopsis-section {
+    margin-bottom: 32px;
+  }
+  
+  .section-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 20px;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 0 0 16px 0;
+  }
+  
+  .synopsis-text {
+    color: #475569;
+    font-size: 16px;
+    line-height: 1.7;
+    margin: 0 0 20px 0;
+  }
+  
+  .book-tags {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  
+  .tag {
+    background: #f1f5f9;
+    color: #475569;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid #e2e8f0;
+  }
+  
+  /* Reward section */
+  .reward-section {
+    margin-bottom: 32px;
+  }
+  
+  .reward-card {
+    background: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%);
+    color: white;
+    padding: 24px;
+    border-radius: 20px;
+    box-shadow: 0 8px 32px rgba(139, 92, 246, 0.3);
+  }
+  
+  .reward-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  
+  .reward-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+  }
+  
+  .reward-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .reward-amount-display {
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .reward-value {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  
+  .reward-label {
+    font-size: 14px;
+    opacity: 0.9;
+    color: #e0e7ff;
+  }
+  
+  .bonus-info {
+    display: flex;
+    flex-direction: column;
     gap: 8px;
   }
+  
+  .bonus-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  
+  /* Action section */
+  .action-section {
+    text-align: center;
+  }
+  
+  .read-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+    color: white;
+    text-decoration: none;
+    padding: 16px 32px;
+    border-radius: 16px;
+    font-weight: 700;
+    font-size: 18px;
+    transition: all 0.3s ease;
+    box-shadow: 0 8px 32px rgba(139, 92, 246, 0.3);
+    margin-bottom: 16px;
+    border: none;
+    cursor: pointer;
+  }
+  
+  .read-button:hover:not(.disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 40px rgba(139, 92, 246, 0.4);
+  }
 
-  .stat-icons {
+  .read-button.disabled {
+    background: #94a3b8;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+  
+  .action-info {
+    color: #64748b;
+    font-size: 14px;
+  }
+  
+  .action-info p {
+    margin: 0;
+  }
+
+  /* Reviews section */
+  .reviews-section {
+    background: white;
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+    border: 1px solid #e2e8f0;
+  }
+
+  .reviews-section h3 {
+    color: #1e293b;
+    margin-bottom: 20px;
+    font-size: 18px;
+  }
+
+  .reviews-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .review-card {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid #e2e8f0;
+  }
+
+  .review-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .reviewer-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .reviewer-name {
+    font-weight: 600;
+    color: #1e293b;
+  }
+
+  .reviewer-level {
+    font-size: 12px;
+    color: #64748b;
+  }
+
+  .review-rating {
+    color: #f59e0b;
     display: flex;
     gap: 2px;
   }
 
-  .stat-text {
-    color: #6b7280;
-    font-size: 0.9rem;
+  .review-comment {
+    color: #475569;
+    margin: 8px 0;
+    font-size: 14px;
+    line-height: 1.5;
   }
 
-  .reward-info {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+  .review-date {
+    font-size: 12px;
+    color: #94a3b8;
   }
-
-  .reward-money {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .reward-amount {
-    font-size: 1.25rem;
-    font-weight: bold;
-    color: #059669;
-  }
-
-  .reward-label {
-    color: #6b7280;
-    font-size: 0.9rem;
-  }
-
-  .reward-points {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: #3b82f6;
-    font-size: 0.9rem;
-  }
-
-  .book-synopsis {
-    background: white;
-    border-radius: 16px;
-    padding: 32px;
-    margin-bottom: 24px;
-  }
-
-  .book-synopsis h2 {
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: #1f2937;
-    margin-bottom: 16px;
-  }
-
-  .book-synopsis p {
-    color: #4b5563;
-    line-height: 1.6;
-  }
-
-  .action-section {
-    background: white;
-    border-radius: 16px;
-    padding: 32px;
-    margin-bottom: 24px;
-    display: flex;
-    justify-content: center;
-  }
-
-  .read-button {
-    background: linear-gradient(135deg, #059669, #047857);
-    color: white;
-    padding: 16px 32px;
-    border-radius: 12px;
-    text-decoration: none;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    transition: all 0.2s;
-    font-size: 1.1rem;
-  }
-
-  .read-button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(5, 150, 105, 0.3);
-  }
-
-  .locked-info {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: #6b7280;
-    font-size: 1.1rem;
-  }
-
+  
+  /* Additional info */
   .additional-info {
     background: white;
     border-radius: 16px;
-    padding: 32px;
+    padding: 24px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+    border: 1px solid #e2e8f0;
   }
-
+  
   .info-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
   }
-
+  
   .info-item {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 0;
-    border-bottom: 1px solid #f3f4f6;
+    flex-direction: column;
+    gap: 4px;
   }
-
-  .info-item strong {
-    color: #374151;
+  
+  .info-label {
+    font-size: 13px;
+    color: #64748b;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
-
-  .info-item span {
-    color: #6b7280;
+  
+  .info-value {
+    font-size: 16px;
+    color: #1e293b;
+    font-weight: 600;
   }
-
+  
+  /* Responsive */
   @media (max-width: 768px) {
-    .book-main-info {
+    .page-container {
+      padding: 0 16px;
+    }
+    
+    .book-detail-card {
+      padding: 24px 20px;
+    }
+    
+    .book-hero-section {
       flex-direction: column;
+      align-items: center;
       text-align: center;
+      gap: 24px;
     }
-
-    .cover-placeholder {
-      margin: 0 auto;
+    
+    .book-cover-large {
+      width: 140px;
+      height: 175px;
     }
-
+    
+    .cover-emoji {
+      font-size: 56px;
+    }
+    
     .book-title {
-      font-size: 1.5rem;
+      font-size: 28px;
+    }
+    
+    .reward-content {
+      flex-direction: column;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    
+    .info-grid {
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+    
+    .book-quick-stats {
+      align-items: center;
     }
   }
 `;

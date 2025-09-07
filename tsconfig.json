@@ -31,7 +31,7 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
-    "vite-env.d.ts"
+    "src/vite-env.d.ts"
   ],
   "exclude": [
     "node_modules",

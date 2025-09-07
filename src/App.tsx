@@ -21,9 +21,9 @@ import AdminDashboard from './pages/AdminDashboard.tsx';
 import Layout from './components/Layout';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, isLoading } = useAuth();
+  const { user, loading } = useAuth();
   
-  if (isLoading) {
+  if (loading) {
     return <div className="loading-screen">Carregando...</div>;
   }
   
@@ -35,9 +35,9 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, isLoading } = useAuth();
+  const { user, loading } = useAuth();
   
-  if (isLoading) {
+  if (loading) {
     return <div className="loading-screen">Carregando...</div>;
   }
   
@@ -130,13 +130,14 @@ const App: React.FC = () => {
             </ProtectedRoute>
           } />
           
+          {/* Admin Routes */}
           <Route path="/admin" element={
             <ProtectedRoute>
               <AdminDashboard />
             </ProtectedRoute>
           } />
           
-          {/* Fallback */}
+          {/* Redirect any unknown routes */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Router>

@@ -1,7 +1,6 @@
-// src/hooks/useDashboard.tsx - MIGRADO PARA API REAL
+// src/hooks/useDashboard.tsx - VERSÃO CORRIGIDA SÓ COM MOCK
 import { useState, useEffect } from 'react';
 import { useAuth } from './useAuth';
-import { apiService } from '../services/api';
 
 interface DashboardStats {
   booksRead: number;
@@ -10,27 +9,24 @@ interface DashboardStats {
 }
 
 interface DashboardProgress {
-  currentLevel: number;
-  pointsToNextLevel: number;
-  progressPercentage: number;
+  dailyBooks: number;
+  dailyReviews: number;
+  dailyEarnings: number;
 }
 
-interface BookFromAPI {
+interface DashboardBook {
   id: string;
   title: string;
   author: string;
   genre: string;
-  synopsis: string;
-  baseRewardMoney: number;
-  requiredLevel: number;
+  rewardMoney: number;
   reviewsCount: number;
-  averageRating: number;
-  createdAt: string;
-  // Campos calculados no frontend
-  rewardMoney?: number;
-  isAvailable?: boolean;
-  estimatedTime?: string;
-  coverColor?: string;
+  coverColor: string;
+  isAvailable: boolean;
+  estimatedTime: string;
+  synopsis?: string;
+  requiredLevel?: number;
+  baseRewardMoney?: number;
   estimatedReadTime?: number;
   isInitialBook?: boolean;
 }
@@ -38,13 +34,13 @@ interface BookFromAPI {
 interface DashboardState {
   stats: DashboardStats;
   progress: DashboardProgress;
-  availableBooks: BookFromAPI[];
-  lockedBooks: BookFromAPI[];
+  availableBooks: DashboardBook[];
+  lockedBooks: DashboardBook[];
   isLoading: boolean;
   error: string | null;
 }
 
-// Mock para stats e progress (até migrarmos essas APIs também)
+// Mock data baseado no seed.ts
 const MOCK_STATS: DashboardStats = {
   booksRead: 0,
   weeklyEarnings: 0,
@@ -52,19 +48,109 @@ const MOCK_STATS: DashboardStats = {
 };
 
 const MOCK_PROGRESS: DashboardProgress = {
-  currentLevel: 0,
-  pointsToNextLevel: 1000,
-  progressPercentage: 0,
+  dailyBooks: 0,
+  dailyReviews: 0,
+  dailyEarnings: 0,
 };
 
-// Cores para capas dos livros
-const BOOK_COLORS = [
-  '#3b82f6', // blue
-  '#10b981', // emerald  
-  '#f59e0b', // amber
-  '#ef4444', // red
-  '#8b5cf6', // violet
-  '#06b6d4', // cyan
+// Dados dos livros baseados no seed.ts
+const MOCK_BOOKS: DashboardBook[] = [
+  {
+    id: '1',
+    title: 'A Caixa de Pandora',
+    author: 'Hesíodo',
+    genre: 'Mitologia grega',
+    rewardMoney: 100,
+    reviewsCount: 84288,
+    coverColor: '#895aed',
+    isAvailable: true,
+    estimatedTime: '7 min',
+    synopsis: 'Descubra o conto mitológico de Pandora, que nos revela a origem dos males do mundo e o dom da esperança.',
+    baseRewardMoney: 10000,
+    estimatedReadTime: 420,
+    isInitialBook: true,
+    requiredLevel: 0
+  },
+  {
+    id: '2',
+    title: 'O Príncipe e a Gata',
+    author: 'Charles Perrault',
+    genre: 'Conto de fadas',
+    rewardMoney: 200,
+    reviewsCount: 12947,
+    coverColor: '#dc2626',
+    isAvailable: true,
+    estimatedTime: '7 min',
+    synopsis: 'Era uma vez um rei, pai de três corajosos príncipes, que estava em dúvida sobre qual deles deveria lhe suceder no trono.',
+    baseRewardMoney: 20000,
+    estimatedReadTime: 420,
+    isInitialBook: true,
+    requiredLevel: 0
+  },
+  {
+    id: '3',
+    title: 'O Banqueiro Anarquista',
+    author: 'Fernando Pessoa',
+    genre: 'Ensaio filosófico',
+    rewardMoney: 300,
+    reviewsCount: 11698,
+    coverColor: '#059669',
+    isAvailable: true,
+    estimatedTime: '93 min',
+    synopsis: 'Ensaio filosófico em forma de diálogo, onde um banqueiro se declara anarquista.',
+    baseRewardMoney: 30000,
+    estimatedReadTime: 5580,
+    isInitialBook: true,
+    requiredLevel: 0
+  },
+  {
+    id: '4',
+    title: 'De Quanta Terra um Homem Precisa?',
+    author: 'Liev Tolstói',
+    genre: 'Literatura russa',
+    rewardMoney: 500,
+    reviewsCount: 8754,
+    coverColor: '#f59e0b',
+    isAvailable: true,
+    estimatedTime: '18 min',
+    synopsis: 'Um conto sobre ambição e as verdadeiras necessidades humanas.',
+    baseRewardMoney: 50000,
+    estimatedReadTime: 1100,
+    isInitialBook: true,
+    requiredLevel: 0
+  },
+  {
+    id: '5',
+    title: 'O Último Detetive de Baker Street',
+    author: 'Eduardo Santos',
+    genre: 'Mistério Urbano',
+    rewardMoney: 800,
+    reviewsCount: 5621,
+    coverColor: '#8b5cf6',
+    isAvailable: false,
+    estimatedTime: '14 min',
+    synopsis: 'Mistérios sombrios nas ruas de Londres com um detetive excepcional.',
+    baseRewardMoney: 80000,
+    estimatedReadTime: 840,
+    requiredLevel: 1,
+    isInitialBook: false
+  },
+  {
+    id: '6',
+    title: 'Suspeito Comum',
+    author: 'Maria Silva',
+    genre: 'Thriller psicológico',
+    rewardMoney: 600,
+    reviewsCount: 3245,
+    coverColor: '#dc2626',
+    isAvailable: false,
+    estimatedTime: '12 min',
+    synopsis: 'Um thriller que questiona a natureza da culpa e inocência.',
+    baseRewardMoney: 60000,
+    estimatedReadTime: 720,
+    requiredLevel: 2,
+    isInitialBook: false
+  }
 ];
 
 export const useDashboard = () => {
@@ -78,7 +164,7 @@ export const useDashboard = () => {
     error: null,
   });
 
-  const loadDataFromAPI = async () => {
+  const loadMockData = async () => {
     if (!user) {
       setState(prev => ({ ...prev, isLoading: false }));
       return;
@@ -86,55 +172,40 @@ export const useDashboard = () => {
 
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
+    // Simular delay da API
+    await new Promise(resolve => setTimeout(resolve, 500));
+
     try {
-      console.log('📚 Carregando dados reais da API...');
+      console.log('📚 Carregando dados mock do dashboard');
 
-      const booksResponse = await apiService.getBooks();
-      
-      if (!booksResponse.success || !booksResponse.data) {
-        throw new Error(booksResponse.error || 'Erro ao buscar livros');
-      }
-
-      const books = booksResponse.data.books;
-      console.log('📖 Livros carregados da API:', books.length);
-
-      // Processar livros com dados calculados
+      // Filtrar livros baseado no nível do usuário
       const userLevel = user?.level || 0;
       const userPlan = user?.planType || 'free';
       
-      const processedBooks = books.map((book: any, index: number) => ({
+      // Processar livros mock
+      const processedBooks = MOCK_BOOKS.map(book => ({
         ...book,
-        // Calcular recompensa baseada no plano do usuário
         rewardMoney: calculateUserReward(book.baseRewardMoney || 10000, userPlan),
-        // Definir disponibilidade baseada no nível
-        isAvailable: book.requiredLevel <= userLevel,
-        // Estimar tempo de leitura (converter de segundos para minutos)
-        estimatedTime: book.estimatedReadTime 
-          ? `${Math.ceil(book.estimatedReadTime / 60)} min`
-          : '5 min',
-        // Cor da capa
-        coverColor: BOOK_COLORS[index % BOOK_COLORS.length],
-        // Tempo em segundos para componentes que precisam
-        estimatedReadTime: book.estimatedReadTime || 300,
-        // Flag para livros iniciais
-        isInitialBook: book.isInitialBook || false
+        reviewsCount: book.reviewsCount || Math.floor(Math.random() * 50000) + 10000
       }));
 
       // Separar livros disponíveis e bloqueados
-      const availableBooks = processedBooks.filter((book: BookFromAPI) => {
-        return book.requiredLevel <= userLevel;
+      const availableBooks = processedBooks.filter(book => {
+        if (book.isInitialBook === true) return true;
+        if (book.requiredLevel !== undefined) return book.requiredLevel <= userLevel;
+        return false;
       });
       
-      const lockedBooks = processedBooks.filter((book: BookFromAPI) => {
-        return book.requiredLevel > userLevel;
+      const lockedBooks = processedBooks.filter(book => {
+        if (book.isInitialBook === false && book.requiredLevel !== undefined) {
+          return book.requiredLevel > userLevel;
+        }
+        return false;
       });
-
-      console.log('✅ Livros disponíveis:', availableBooks.length);
-      console.log('🔒 Livros bloqueados:', lockedBooks.length);
 
       setState({
         stats: extractStatsFromUser(user),
-        progress: calculateProgressFromUser(user),
+        progress: MOCK_PROGRESS,
         availableBooks,
         lockedBooks,
         isLoading: false,
@@ -142,11 +213,11 @@ export const useDashboard = () => {
       });
 
     } catch (error: any) {
-      console.error('❌ Erro ao carregar dados da API:', error);
+      console.error('Erro ao carregar dados mock:', error);
       setState(prev => ({
         ...prev,
         isLoading: false,
-        error: error.message || 'Erro ao carregar dados do dashboard'
+        error: 'Erro ao carregar dados do dashboard'
       }));
     }
   };
@@ -156,8 +227,8 @@ export const useDashboard = () => {
     const rewardInReais = baseRewardMoney / 100;
     
     if (planType === 'premium') {
-      // Premium tem 50% a mais
-      return rewardInReais * 1.5;
+      // Premium poderia ter multiplicador
+      return rewardInReais * 1.5; // 50% a mais
     }
     
     return rewardInReais;
@@ -171,29 +242,12 @@ export const useDashboard = () => {
     };
   };
 
-  const calculateProgressFromUser = (userData: any): DashboardProgress => {
-    const currentLevel = userData?.level || 0;
-    const currentPoints = userData?.points || 0;
-    
-    // Cada nível precisa de 1000 pontos
-    const pointsPerLevel = 1000;
-    const pointsInCurrentLevel = currentPoints % pointsPerLevel;
-    const pointsToNextLevel = pointsPerLevel - pointsInCurrentLevel;
-    const progressPercentage = (pointsInCurrentLevel / pointsPerLevel) * 100;
-    
-    return {
-      currentLevel,
-      pointsToNextLevel,
-      progressPercentage: Math.round(progressPercentage)
-    };
-  };
-
   const refetch = () => {
-    loadDataFromAPI();
+    loadMockData();
   };
 
   useEffect(() => {
-    loadDataFromAPI();
+    loadMockData();
   }, [user?.id]);
 
   return {
