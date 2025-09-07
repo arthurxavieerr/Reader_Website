@@ -1,8 +1,6 @@
-// src/components/Layout.tsx
+// src/components/Layout.tsx - CORRIGIDO
 import React, { useState } from 'react';
-import { useLocation } from 'react-router-dom';
 import Header from './Header';
-import BottomNavigation from './BottomNavigation';
 import ConfigModal from './ConfigModal';
 
 interface LayoutProps {
@@ -11,33 +9,37 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
-  const location = useLocation();
+
+  const handleOpenConfig = () => {
+    setIsConfigModalOpen(true);
+  };
+
+  const handleCloseConfig = () => {
+    setIsConfigModalOpen(false);
+  };
 
   return (
     <div className="layout">
-      <Header onOpenConfig={() => setIsConfigModalOpen(true)} />
+      <Header />
       
       <main className="main-content">
         {children}
       </main>
       
-      <BottomNavigation currentPath={location.pathname} />
-      
-      {isConfigModalOpen && (
-        <ConfigModal onClose={() => setIsConfigModalOpen(false)} />
-      )}
-      
+      <ConfigModal 
+        isOpen={isConfigModalOpen}
+        onClose={handleCloseConfig}
+      />
+
       <style>{`
         .layout {
           min-height: 100vh;
           display: flex;
           flex-direction: column;
         }
-        
+
         .main-content {
           flex: 1;
-          padding-bottom: 80px;
-          background-color: var(--color-surface);
         }
       `}</style>
     </div>
