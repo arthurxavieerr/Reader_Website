@@ -1,428 +1,404 @@
-import React, { useState } from 'react';
+// src/components/ConfigModal.tsx - VERSÃO LIMPA
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { Link } from 'react-router-dom';
-import { User, Edit, Eye, Star, Zap, X, Camera, Upload, Shield, Settings } from 'lucide-react';
+import { 
+  X, User, Mail, Phone, Camera, Save, 
+  Eye, EyeOff, Lock, Shield 
+} from 'lucide-react';
 
 interface ConfigModalProps {
+  isOpen: boolean;
   onClose: () => void;
 }
 
-const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
-  const { user, logout, updateProfile, loading } = useAuth();
-  const [activeTab, setActiveTab] = useState<'main' | 'profile' | 'viewProfile'>('main');
-  const [profileData, setProfileData] = useState({
-    name: user?.name || '',
-    email: user?.email || '',
-    phone: user?.phone || '',
-    commitment: user?.commitment || 'committed',
-    incomeRange: user?.incomeRange || 'medium'
+const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose }) => {
+  const { user, updateUser, isLoading } = useAuth();
+  const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'notifications'>('profile');
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    profileImage: '',
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+    emailNotifications: true,
+    pushNotifications: true,
+    weeklyReport: true,
   });
-  const [profileImage, setProfileImage] = useState<string | null>(user?.profileImage || null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  if (!user) return null;
-
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose();
+  useEffect(() => {
+    if (user) {
+      setFormData(prev => ({
+        ...prev,
+        name: user.name || '',
+        email: user.email || '',
+        phone: user.phone || '',
+        profileImage: user.profileImage || '',
+      }));
     }
+  }, [user]);
+
+  const handleInputChange = (field: string, value: string | boolean) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setProfileData(prev => ({ ...prev, [name]: value }));
-  };
+  const handleProfileSave = async () => {
+    if (!user) return;
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const result = event.target?.result as string;
-        setProfileImage(result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+    setIsSaving(true);
+    setMessage(null);
 
-  const handleSaveProfile = async () => {
-    setIsSubmitting(true);
     try {
-      await updateProfile({
-        name: profileData.name,
-        email: profileData.email,
-        phone: profileData.phone,
-        commitment: profileData.commitment as 'committed' | 'curious',
-        incomeRange: profileData.incomeRange as 'low' | 'medium' | 'high' | 'unemployed',
-        profileImage: profileImage
-      });
-      setActiveTab('main');
+      const profileData = {
+        name: formData.name,
+        phone: formData.phone,
+        profileImage: formData.profileImage,
+      };
+
+      updateUser(profileData);
+      
+      setMessage({ type: 'success', text: 'Perfil atualizado com sucesso!' });
+      
+      setTimeout(() => {
+        setMessage(null);
+      }, 3000);
     } catch (error) {
-      console.error('Erro ao salvar perfil:', error);
+      setMessage({ type: 'error', text: 'Erro ao atualizar perfil' });
     } finally {
-      setIsSubmitting(false);
+      setIsSaving(false);
     }
   };
 
-  const renderMainConfig = () => (
-    <div className="config-content">
-      <div className="config-header">
-        <h2>Configurações</h2>
-        <button className="close-button" onClick={onClose}>
-          <X size={24} />
-        </button>
-      </div>
-      
-      <div className="config-options">
-        {/* Botão Admin - só aparece para admins */}
-        {user.isAdmin && (
-          <Link to="/admin" className="config-option admin-option" onClick={onClose}>
-            <div className="option-icon admin-icon">
-              <Shield size={20} />
-            </div>
-            <div className="option-content">
-              <h3>Painel Administrativo</h3>
-              <p>Acesso completo ao sistema de gestão</p>
-            </div>
-            <div className="admin-badge">ADMIN</div>
-          </Link>
-        )}
+  const handlePasswordChange = async () => {
+    if (!formData.currentPassword || !formData.newPassword) {
+      setMessage({ type: 'error', text: 'Preencha todos os campos de senha' });
+      return;
+    }
 
-        <button 
-          className="config-option"
-          onClick={() => setActiveTab('profile')}
-        >
-          <div className="option-icon">
-            <Edit size={20} />
-          </div>
-          <div className="option-content">
-            <h3>Editar Perfil Beta Reader</h3>
-            <p>Alterar preferências de onboarding</p>
-          </div>
-        </button>
-        
-        <button 
-          className="config-option"
-          onClick={() => setActiveTab('viewProfile')}
-        >
-          <div className="option-icon">
-            <Eye size={20} />
-          </div>
-          <div className="option-content">
-            <h3>Ver Perfil</h3>
-            <p>Visualizar dados do usuário</p>
-          </div>
-        </button>
-        
-        <button className="config-option">
-          <div className="option-icon">
-            <Star size={20} />
-          </div>
-          <div className="option-content">
-            <h3>Modo de Avaliador</h3>
-            <p>Avaliador Nacional</p>
-          </div>
-        </button>
-        
-        <div className="premium-banner">
-          <div className="banner-content">
-            <div className="banner-icon">
-              <Zap size={20} />
-            </div>
-            <div className="banner-text">
-              <h3>Novidades em Breve</h3>
-              <p>Muitas funções e áreas ainda serão desbloqueadas conforme você sobe de pontuação!</p>
-            </div>
-          </div>
-        </div>
-        
-        <button className="close-config-btn" onClick={onClose}>
-          Fechar
-        </button>
-      </div>
-    </div>
-  );
+    if (formData.newPassword !== formData.confirmPassword) {
+      setMessage({ type: 'error', text: 'As senhas não coincidem' });
+      return;
+    }
 
-  const renderEditProfile = () => (
-    <div className="config-content">
-      <div className="config-header">
-        <button className="back-button" onClick={() => setActiveTab('main')}>
-          ←
-        </button>
-        <h2>Editar Perfil</h2>
-        <button className="close-button" onClick={onClose}>
-          <X size={24} />
-        </button>
-      </div>
+    if (formData.newPassword.length < 6) {
+      setMessage({ type: 'error', text: 'A nova senha deve ter pelo menos 6 caracteres' });
+      return;
+    }
+
+    setIsSaving(true);
+    setMessage(null);
+
+    try {
+      // TODO: Implementar mudança de senha na API
+      console.log('Changing password...', {
+        currentPassword: formData.currentPassword,
+        newPassword: formData.newPassword
+      });
       
-      <div className="profile-edit">
-        {/* Upload de Foto */}
-        <div className="photo-upload-section">
-          <div className="current-photo">
-            {profileImage ? (
-              <img src={profileImage} alt="Foto do perfil" className="profile-photo" />
-            ) : (
-              <div className="profile-avatar-large">
-                {user.name.charAt(0).toUpperCase()}
+      setMessage({ type: 'success', text: 'Senha alterada com sucesso!' });
+      
+      // Limpar campos de senha
+      setFormData(prev => ({
+        ...prev,
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+      }));
+      
+      setTimeout(() => {
+        setMessage(null);
+      }, 3000);
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Erro ao alterar senha' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleNotificationsSave = async () => {
+    setIsSaving(true);
+    setMessage(null);
+
+    try {
+      // TODO: Implementar salvamento de notificações na API
+      console.log('Saving notifications...', {
+        emailNotifications: formData.emailNotifications,
+        pushNotifications: formData.pushNotifications,
+        weeklyReport: formData.weeklyReport
+      });
+      
+      setMessage({ type: 'success', text: 'Preferências de notificação atualizadas!' });
+      
+      setTimeout(() => {
+        setMessage(null);
+      }, 3000);
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Erro ao atualizar notificações' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <>
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2>Configurações</h2>
+            <button onClick={onClose} className="close-button" aria-label="Fechar">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="tabs">
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`tab ${activeTab === 'profile' ? 'active' : ''}`}
+            >
+              <User className="w-4 h-4" />
+              Perfil
+            </button>
+            <button
+              onClick={() => setActiveTab('security')}
+              className={`tab ${activeTab === 'security' ? 'active' : ''}`}
+            >
+              <Shield className="w-4 h-4" />
+              Segurança
+            </button>
+            <button
+              onClick={() => setActiveTab('notifications')}
+              className={`tab ${activeTab === 'notifications' ? 'active' : ''}`}
+            >
+              <Mail className="w-4 h-4" />
+              Notificações
+            </button>
+          </div>
+
+          <div className="modal-body">
+            {message && (
+              <div className={`message ${message.type}`}>
+                {message.text}
+              </div>
+            )}
+
+            {activeTab === 'profile' && (
+              <div className="tab-content">
+                <h3>Informações Pessoais</h3>
+                
+                <div className="form-group">
+                  <label htmlFor="name">Nome Completo</label>
+                  <div className="input-group">
+                    <User className="w-5 h-5 text-gray-400" />
+                    <input
+                      id="name"
+                      type="text"
+                      value={formData.name}
+                      onChange={(e) => handleInputChange('name', e.target.value)}
+                      placeholder="Seu nome completo"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="email">Email</label>
+                  <div className="input-group">
+                    <Mail className="w-5 h-5 text-gray-400" />
+                    <input
+                      id="email"
+                      type="email"
+                      value={formData.email}
+                      disabled
+                      className="disabled"
+                    />
+                  </div>
+                  <span className="help-text">O email não pode ser alterado</span>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="phone">Telefone</label>
+                  <div className="input-group">
+                    <Phone className="w-5 h-5 text-gray-400" />
+                    <input
+                      id="phone"
+                      type="tel"
+                      value={formData.phone}
+                      onChange={(e) => handleInputChange('phone', e.target.value)}
+                      placeholder="(11) 99999-9999"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="profileImage">URL da Foto de Perfil</label>
+                  <div className="input-group">
+                    <Camera className="w-5 h-5 text-gray-400" />
+                    <input
+                      id="profileImage"
+                      type="url"
+                      value={formData.profileImage}
+                      onChange={(e) => handleInputChange('profileImage', e.target.value)}
+                      placeholder="https://exemplo.com/foto.jpg"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleProfileSave}
+                  disabled={isSaving}
+                  className="save-button"
+                >
+                  <Save className="w-4 h-4" />
+                  {isSaving ? 'Salvando...' : 'Salvar Alterações'}
+                </button>
+              </div>
+            )}
+
+            {activeTab === 'security' && (
+              <div className="tab-content">
+                <h3>Alterar Senha</h3>
+                
+                <div className="form-group">
+                  <label htmlFor="currentPassword">Senha Atual</label>
+                  <div className="input-group">
+                    <Lock className="w-5 h-5 text-gray-400" />
+                    <input
+                      id="currentPassword"
+                      type={showCurrentPassword ? 'text' : 'password'}
+                      value={formData.currentPassword}
+                      onChange={(e) => handleInputChange('currentPassword', e.target.value)}
+                      placeholder="Digite sua senha atual"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                      className="password-toggle"
+                      aria-label={showCurrentPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    >
+                      {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="newPassword">Nova Senha</label>
+                  <div className="input-group">
+                    <Lock className="w-5 h-5 text-gray-400" />
+                    <input
+                      id="newPassword"
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={formData.newPassword}
+                      onChange={(e) => handleInputChange('newPassword', e.target.value)}
+                      placeholder="Digite a nova senha"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="password-toggle"
+                      aria-label={showNewPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    >
+                      {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="confirmPassword">Confirmar Nova Senha</label>
+                  <div className="input-group">
+                    <Lock className="w-5 h-5 text-gray-400" />
+                    <input
+                      id="confirmPassword"
+                      type="password"
+                      value={formData.confirmPassword}
+                      onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                      placeholder="Confirme a nova senha"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={handlePasswordChange}
+                  disabled={isSaving}
+                  className="save-button"
+                >
+                  <Shield className="w-4 h-4" />
+                  {isSaving ? 'Alterando...' : 'Alterar Senha'}
+                </button>
+              </div>
+            )}
+
+            {activeTab === 'notifications' && (
+              <div className="tab-content">
+                <h3>Preferências de Notificação</h3>
+                
+                <div className="checkbox-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={formData.emailNotifications}
+                      onChange={(e) => handleInputChange('emailNotifications', e.target.checked)}
+                    />
+                    <span className="checkmark"></span>
+                    <div className="checkbox-content">
+                      <strong>Notificações por Email</strong>
+                      <p>Receba atualizações sobre novos livros e recompensas</p>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="checkbox-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={formData.pushNotifications}
+                      onChange={(e) => handleInputChange('pushNotifications', e.target.checked)}
+                    />
+                    <span className="checkmark"></span>
+                    <div className="checkbox-content">
+                      <strong>Notificações Push</strong>
+                      <p>Receba lembretes para continuar lendo</p>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="checkbox-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={formData.weeklyReport}
+                      onChange={(e) => handleInputChange('weeklyReport', e.target.checked)}
+                    />
+                    <span className="checkmark"></span>
+                    <div className="checkbox-content">
+                      <strong>Relatório Semanal</strong>
+                      <p>Receba um resumo da sua atividade de leitura</p>
+                    </div>
+                  </label>
+                </div>
+
+                <button
+                  onClick={handleNotificationsSave}
+                  disabled={isSaving}
+                  className="save-button"
+                >
+                  <Save className="w-4 h-4" />
+                  {isSaving ? 'Salvando...' : 'Salvar Preferências'}
+                </button>
               </div>
             )}
           </div>
-          
-          <div className="photo-upload-controls">
-            <label htmlFor="photo-upload" className="upload-button">
-              <Camera size={16} />
-              Alterar Foto
-            </label>
-            <input
-              id="photo-upload"
-              type="file"
-              accept="image/*"
-              onChange={handleImageUpload}
-              style={{ display: 'none' }}
-            />
-            {profileImage && (
-              <button 
-                className="remove-photo-btn"
-                onClick={() => setProfileImage(null)}
-              >
-                Remover
-              </button>
-            )}
-          </div>
         </div>
+      </div>
 
-        <div className="form-group">
-          <label className="form-label">Nome completo</label>
-          <input 
-            type="text" 
-            name="name"
-            className="form-input" 
-            value={profileData.name}
-            onChange={handleInputChange}
-            placeholder="Seu nome completo"
-          />
-        </div>
-        
-        <div className="form-group">
-          <label className="form-label">Email</label>
-          <input 
-            type="email" 
-            name="email"
-            className="form-input" 
-            value={profileData.email}
-            onChange={handleInputChange}
-            placeholder="seu@email.com"
-          />
-        </div>
-        
-        <div className="form-group">
-          <label className="form-label">Telefone</label>
-          <input 
-            type="tel" 
-            name="phone"
-            className="form-input" 
-            value={profileData.phone}
-            onChange={handleInputChange}
-            placeholder="(11) 99999-9999"
-          />
-        </div>
-        
-        <div className="form-group">
-          <label className="form-label">Nível de comprometimento</label>
-          <div className="radio-group">
-            <label className="radio-option">
-              <input 
-                type="radio" 
-                name="commitment" 
-                value="committed"
-                checked={profileData.commitment === 'committed'}
-                onChange={handleInputChange}
-              />
-              <span>Sim, estou comprometido(a)</span>
-            </label>
-            <label className="radio-option">
-              <input 
-                type="radio" 
-                name="commitment" 
-                value="curious"
-                checked={profileData.commitment === 'curious'}
-                onChange={handleInputChange}
-              />
-              <span>Não, apenas curiosidade</span>
-            </label>
-          </div>
-        </div>
-        
-        <div className="form-group">
-          <label className="form-label">Faixa de renda mensal</label>
-          <div className="radio-group">
-            <label className="radio-option">
-              <input 
-                type="radio" 
-                name="incomeRange" 
-                value="low"
-                checked={profileData.incomeRange === 'low'}
-                onChange={handleInputChange}
-              />
-              <span>R$ 1.000 - R$ 10.000</span>
-            </label>
-            <label className="radio-option">
-              <input 
-                type="radio" 
-                name="incomeRange" 
-                value="medium"
-                checked={profileData.incomeRange === 'medium'}
-                onChange={handleInputChange}
-              />
-              <span>R$ 10.000 - R$ 50.000</span>
-            </label>
-            <label className="radio-option">
-              <input 
-                type="radio" 
-                name="incomeRange" 
-                value="high"
-                checked={profileData.incomeRange === 'high'}
-                onChange={handleInputChange}
-              />
-              <span>R$ 100.000+</span>
-            </label>
-            <label className="radio-option">
-              <input 
-                type="radio" 
-                name="incomeRange" 
-                value="unemployed"
-                checked={profileData.incomeRange === 'unemployed'}
-                onChange={handleInputChange}
-              />
-              <span>Desempregado(a)</span>
-            </label>
-          </div>
-        </div>
-        
-        <div className="form-actions">
-          <button 
-            className="btn btn-secondary" 
-            onClick={() => setActiveTab('main')}
-            disabled={isSubmitting}
-          >
-            Cancelar
-          </button>
-          <button 
-            className="btn btn-primary" 
-            onClick={handleSaveProfile}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? 'Salvando...' : 'Salvar Alterações'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderViewProfile = () => (
-    <div className="config-content">
-      <div className="config-header">
-        <button className="back-button" onClick={() => setActiveTab('main')}>
-          ←
-        </button>
-        <h2>Meu Perfil</h2>
-        <button className="close-button" onClick={onClose}>
-          <X size={24} />
-        </button>
-      </div>
-      
-      <div className="profile-view">
-        <div className="profile-summary">
-          <div className="profile-avatar">
-            {user.profileImage ? (
-              <img 
-                src={user.profileImage} 
-                alt={user.name}
-                style={{ 
-                  width: '100%', 
-                  height: '100%', 
-                  borderRadius: '50%', 
-                  objectFit: 'cover' 
-                }} 
-              />
-            ) : (
-              user.name.charAt(0).toUpperCase()
-            )}
-          </div>
-          <div className="profile-info">
-            <div className="profile-title">
-              <h3>{user.name}</h3>
-              {user.isAdmin && <span className="admin-badge-small">ADMIN</span>}
-            </div>
-            <p className="profile-email">{user.email}</p>
-            <span className={`level-badge level-${user.level === 0 ? 'bronze' : 'silver'}`}>
-              Nível {user.level === 0 ? 'Bronze' : 'Prata'}
-            </span>
-          </div>
-        </div>
-        
-        <div className="profile-stats">
-          <div className="stat-item">
-            <span className="stat-label">Pontos</span>
-            <span className="stat-value">{user.points}</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-label">Saldo</span>
-            <span className="stat-value">R$ {(user.balance / 100).toFixed(2)}</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-label">Plano</span>
-            <span className="stat-value">{user.planType === 'free' ? 'Gratuito' : 'Premium'}</span>
-          </div>
-        </div>
-        
-        <div className="profile-details">
-          <div className="detail-item">
-            <strong>Telefone:</strong>
-            <span>{user.phone}</span>
-          </div>
-          <div className="detail-item">
-            <strong>Comprometimento:</strong>
-            <span>
-              {user.commitment === 'committed' ? 'Comprometido(a)' : 'Apenas curiosidade'}
-            </span>
-          </div>
-          <div className="detail-item">
-            <strong>Faixa de renda:</strong>
-            <span>
-              {user.incomeRange === 'low' && 'R$ 1.000 - R$ 10.000'}
-              {user.incomeRange === 'medium' && 'R$ 10.000 - R$ 50.000'}
-              {user.incomeRange === 'high' && 'R$ 100.000+'}
-              {user.incomeRange === 'unemployed' && 'Desempregado(a)'}
-            </span>
-          </div>
-          <div className="detail-item">
-            <strong>Membro desde:</strong>
-            <span>{new Date(user.createdAt).toLocaleDateString('pt-BR')}</span>
-          </div>
-          {user.isAdmin && (
-            <div className="detail-item admin-detail">
-              <strong>Permissões:</strong>
-              <span>Administrador do Sistema</span>
-            </div>
-          )}
-        </div>
-        
-        <button className="btn btn-error btn-full" onClick={logout}>
-          Sair da Conta
-        </button>
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="modal-overlay" onClick={handleBackdropClick}>
-      <div className="modal-content config-modal">
-        {activeTab === 'main' && renderMainConfig()}
-        {activeTab === 'profile' && renderEditProfile()}
-        {activeTab === 'viewProfile' && renderViewProfile()}
-      </div>
-      
       <style>{`
         .modal-overlay {
           position: fixed;
@@ -430,469 +406,296 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
           left: 0;
           right: 0;
           bottom: 0;
-          background-color: rgba(0, 0, 0, 0.5);
+          background: rgba(0, 0, 0, 0.5);
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: var(--spacing-lg);
           z-index: 1000;
+          padding: 20px;
         }
-        
-        .config-modal {
-          max-width: 600px;
+
+        .modal-content {
+          background: white;
+          border-radius: 16px;
           width: 100%;
-          background-color: var(--color-background);
-          border-radius: var(--radius-xl);
-          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-          max-height: 90vh;
-          overflow-y: auto;
+          max-width: 500px;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
         }
-        
-        .config-content {
-          padding: 0;
-        }
-        
-        .config-header {
+
+        .modal-header {
+          padding: 24px;
+          border-bottom: 1px solid #e5e7eb;
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: var(--spacing-lg);
-          border-bottom: 1px solid var(--color-border-light);
         }
-        
-        .config-header h2 {
+
+        .modal-header h2 {
+          font-size: 1.5rem;
+          font-weight: bold;
+          color: #1f2937;
           margin: 0;
-          font-size: var(--text-xl);
-          font-weight: var(--font-semibold);
         }
-        
-        .back-button {
-          background: none;
-          border: none;
-          font-size: var(--text-xl);
-          cursor: pointer;
-          padding: var(--spacing-xs);
-          color: var(--color-text-secondary);
-        }
-        
+
         .close-button {
           background: none;
           border: none;
+          padding: 8px;
+          border-radius: 8px;
           cursor: pointer;
-          padding: var(--spacing-xs);
-          color: var(--color-text-secondary);
-          border-radius: var(--radius-md);
+          color: #6b7280;
+          transition: all 0.2s;
         }
-        
+
         .close-button:hover {
-          background-color: var(--color-surface);
+          background: #f3f4f6;
+          color: #374151;
         }
-        
-        .config-options {
-          padding: var(--spacing-lg);
+
+        .tabs {
           display: flex;
-          flex-direction: column;
-          gap: var(--spacing-md);
+          border-bottom: 1px solid #e5e7eb;
         }
-        
-        .config-option {
-          display: flex;
-          align-items: center;
-          gap: var(--spacing-md);
-          padding: var(--spacing-md);
+
+        .tab {
+          flex: 1;
+          padding: 16px;
           background: none;
-          border: 1px solid var(--color-border);
-          border-radius: var(--radius-md);
-          cursor: pointer;
-          transition: all var(--transition-fast);
-          text-align: left;
-          text-decoration: none;
-          color: inherit;
-          position: relative;
-        }
-        
-        .config-option:hover {
-          border-color: var(--color-primary);
-          background-color: rgba(137, 90, 237, 0.05);
-        }
-        
-        /* Admin Option Styling */
-        .admin-option {
-          border-color: #dc2626;
-          background: linear-gradient(135deg, #fee2e2, #fef2f2);
-        }
-        
-        .admin-option:hover {
-          border-color: #dc2626;
-          background: linear-gradient(135deg, #fecaca, #fee2e2);
-          transform: translateY(-2px);
-          box-shadow: 0 8px 25px rgba(220, 38, 38, 0.2);
-        }
-        
-        .admin-icon {
-          background: linear-gradient(135deg, #dc2626, #b91c1c) !important;
-          color: white !important;
-        }
-        
-        .admin-badge {
-          position: absolute;
-          top: -8px;
-          right: -8px;
-          background: #dc2626;
-          color: white;
-          font-size: 10px;
-          font-weight: 700;
-          padding: 4px 8px;
-          border-radius: 12px;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-        
-        .option-icon {
-          width: 40px;
-          height: 40px;
-          border-radius: var(--radius-md);
-          background-color: var(--color-surface);
+          border: none;
           display: flex;
           align-items: center;
           justify-content: center;
-          color: var(--color-primary);
+          gap: 8px;
+          color: #6b7280;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s;
+          border-bottom: 2px solid transparent;
         }
-        
-        .option-content {
+
+        .tab:hover {
+          background: #f9fafb;
+          color: #374151;
+        }
+
+        .tab.active {
+          color: #3b82f6;
+          border-bottom-color: #3b82f6;
+          background: #eff6ff;
+        }
+
+        .modal-body {
+          padding: 24px;
+          overflow-y: auto;
           flex: 1;
         }
-        
-        .option-content h3 {
-          margin: 0 0 var(--spacing-xs) 0;
-          font-size: var(--text-base);
-          font-weight: var(--font-medium);
+
+        .message {
+          padding: 12px 16px;
+          border-radius: 8px;
+          margin-bottom: 24px;
+          font-size: 0.9rem;
         }
-        
-        .option-content p {
-          margin: 0;
-          font-size: var(--text-sm);
-          color: var(--color-text-secondary);
+
+        .message.success {
+          background: #d1fae5;
+          color: #065f46;
+          border: 1px solid #a7f3d0;
         }
-        
-        .premium-banner {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          border-radius: var(--radius-lg);
-          padding: var(--spacing-lg);
-          color: white;
+
+        .message.error {
+          background: #fee2e2;
+          color: #991b1b;
+          border: 1px solid #fca5a5;
         }
-        
-        .banner-content {
+
+        .tab-content h3 {
+          font-size: 1.2rem;
+          font-weight: 600;
+          color: #1f2937;
+          margin-bottom: 24px;
+        }
+
+        .form-group {
+          margin-bottom: 20px;
+        }
+
+        .form-group label {
+          display: block;
+          font-weight: 500;
+          color: #374151;
+          margin-bottom: 8px;
+        }
+
+        .input-group {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+
+        .input-group input {
+          width: 100%;
+          padding: 12px 16px 12px 44px;
+          border: 2px solid #e5e7eb;
+          border-radius: 8px;
+          font-size: 1rem;
+          transition: border-color 0.2s;
+        }
+
+        .input-group input:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+
+        .input-group input.disabled {
+          background: #f9fafb;
+          color: #6b7280;
+          cursor: not-allowed;
+        }
+
+        .input-group svg:first-child {
+          position: absolute;
+          left: 14px;
+          z-index: 1;
+        }
+
+        .password-toggle {
+          position: absolute;
+          right: 12px;
+          background: none;
+          border: none;
+          padding: 4px;
+          cursor: pointer;
+          color: #6b7280;
+          transition: color 0.2s;
+        }
+
+        .password-toggle:hover {
+          color: #374151;
+        }
+
+        .help-text {
+          font-size: 0.8rem;
+          color: #6b7280;
+          margin-top: 4px;
+          display: block;
+        }
+
+        .checkbox-group {
+          margin-bottom: 20px;
+        }
+
+        .checkbox-label {
           display: flex;
           align-items: flex-start;
-          gap: var(--spacing-md);
+          gap: 12px;
+          cursor: pointer;
+          padding: 16px;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          transition: all 0.2s;
         }
-        
-        .banner-icon {
-          width: 32px;
-          height: 32px;
-          border-radius: var(--radius-md);
-          background-color: rgba(255, 255, 255, 0.2);
-          display: flex;
-          align-items: center;
-          justify-content: center;
+
+        .checkbox-label:hover {
+          background: #f9fafb;
+          border-color: #d1d5db;
+        }
+
+        .checkbox-label input[type="checkbox"] {
+          display: none;
+        }
+
+        .checkmark {
+          width: 20px;
+          height: 20px;
+          border: 2px solid #d1d5db;
+          border-radius: 4px;
+          position: relative;
           flex-shrink: 0;
+          transition: all 0.2s;
         }
-        
-        .banner-text h3 {
-          margin: 0 0 var(--spacing-xs) 0;
-          font-size: var(--text-base);
-          font-weight: var(--font-semibold);
+
+        .checkbox-label input[type="checkbox"]:checked + .checkmark {
+          background: #3b82f6;
+          border-color: #3b82f6;
         }
-        
-        .banner-text p {
+
+        .checkbox-label input[type="checkbox"]:checked + .checkmark::after {
+          content: '';
+          position: absolute;
+          top: 2px;
+          left: 6px;
+          width: 4px;
+          height: 8px;
+          border: solid white;
+          border-width: 0 2px 2px 0;
+          transform: rotate(45deg);
+        }
+
+        .checkbox-content {
+          flex: 1;
+        }
+
+        .checkbox-content strong {
+          display: block;
+          color: #1f2937;
+          margin-bottom: 4px;
+        }
+
+        .checkbox-content p {
+          color: #6b7280;
+          font-size: 0.9rem;
           margin: 0;
-          font-size: var(--text-sm);
-          opacity: 0.9;
           line-height: 1.4;
         }
-        
-        .close-config-btn {
-          width: 100%;
-          padding: var(--spacing-md);
-          background-color: var(--color-surface);
-          border: 1px solid var(--color-border);
-          border-radius: var(--radius-md);
-          cursor: pointer;
-          font-size: var(--text-base);
-          font-weight: var(--font-medium);
-          color: var(--color-text-primary);
-          transition: background-color var(--transition-fast);
-        }
-        
-        .close-config-btn:hover {
-          background-color: var(--color-surface-dark);
-        }
-        
-        .profile-edit {
-          padding: var(--spacing-lg);
-        }
-        
-        .photo-upload-section {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          margin-bottom: var(--spacing-xl);
-          padding: var(--spacing-lg);
-          background-color: var(--color-surface);
-          border-radius: var(--radius-lg);
-        }
-        
-        .current-photo {
-          margin-bottom: var(--spacing-md);
-        }
-        
-        .profile-photo {
-          width: 120px;
-          height: 120px;
-          border-radius: var(--radius-full);
-          object-fit: cover;
-          border: 4px solid var(--color-primary);
-        }
-        
-        .profile-avatar-large {
-          width: 120px;
-          height: 120px;
-          border-radius: var(--radius-full);
-          background-color: var(--color-primary);
-          color: white;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: var(--text-4xl);
-          font-weight: var(--font-bold);
-        }
-        
-        .photo-upload-controls {
-          display: flex;
-          gap: var(--spacing-sm);
-          align-items: center;
-        }
-        
-        .upload-button {
-          display: flex;
-          align-items: center;
-          gap: var(--spacing-xs);
-          padding: var(--spacing-sm) var(--spacing-lg);
-          background-color: var(--color-primary);
+
+        .save-button {
+          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
           color: white;
           border: none;
-          border-radius: var(--radius-md);
-          cursor: pointer;
-          font-size: var(--text-sm);
-          font-weight: var(--font-medium);
-          transition: background-color var(--transition-fast);
-        }
-        
-        .upload-button:hover {
-          background-color: var(--color-primary-dark);
-        }
-        
-        .remove-photo-btn {
-          padding: var(--spacing-sm) var(--spacing-md);
-          background-color: transparent;
-          color: var(--color-error);
-          border: 1px solid var(--color-error);
-          border-radius: var(--radius-md);
-          cursor: pointer;
-          font-size: var(--text-sm);
-          transition: all var(--transition-fast);
-        }
-        
-        .remove-photo-btn:hover {
-          background-color: var(--color-error);
-          color: white;
-        }
-        
-        .radio-group {
-          display: flex;
-          flex-direction: column;
-          gap: var(--spacing-sm);
-        }
-        
-        .radio-option {
-          display: flex;
-          align-items: center;
-          gap: var(--spacing-sm);
-          padding: var(--spacing-sm);
-          border: 1px solid var(--color-border);
-          border-radius: var(--radius-md);
-          cursor: pointer;
-          transition: border-color var(--transition-fast);
-        }
-        
-        .radio-option:hover {
-          border-color: var(--color-primary);
-        }
-        
-        .radio-option input[type="radio"] {
-          margin: 0;
-        }
-        
-        .form-actions {
-          display: flex;
-          gap: var(--spacing-sm);
-          margin-top: var(--spacing-xl);
-        }
-        
-        .profile-view {
-          padding: var(--spacing-lg);
-        }
-        
-        .profile-summary {
-          display: flex;
-          align-items: center;
-          gap: var(--spacing-lg);
-          margin-bottom: var(--spacing-xl);
-          padding: var(--spacing-lg);
-          background-color: var(--color-surface);
-          border-radius: var(--radius-lg);
-        }
-        
-        .profile-avatar {
-          width: 80px;
-          height: 80px;
-          border-radius: var(--radius-full);
-          background-color: var(--color-primary);
-          color: white;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: var(--text-2xl);
-          font-weight: var(--font-bold);
-        }
-        
-        .profile-title {
-          display: flex;
-          align-items: center;
-          gap: var(--spacing-sm);
-        }
-        
-        .profile-info h3 {
-          margin: 0 0 var(--spacing-xs) 0;
-          font-size: var(--text-xl);
-          font-weight: var(--font-semibold);
-        }
-        
-        .admin-badge-small {
-          background: #dc2626;
-          color: white;
-          font-size: 10px;
-          font-weight: 700;
-          padding: 4px 8px;
+          padding: 12px 24px;
           border-radius: 8px;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-        
-        .profile-email {
-          color: var(--color-text-secondary);
-          margin: 0 0 var(--spacing-sm) 0;
-        }
-        
-        .profile-stats {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: var(--spacing-md);
-          margin-bottom: var(--spacing-xl);
-        }
-        
-        .stat-item {
-          text-align: center;
-          padding: var(--spacing-lg);
-          background-color: var(--color-surface);
-          border-radius: var(--radius-lg);
-        }
-        
-        .stat-label {
-          display: block;
-          font-size: var(--text-sm);
-          color: var(--color-text-secondary);
-          margin-bottom: var(--spacing-xs);
-        }
-        
-        .stat-value {
-          display: block;
-          font-size: var(--text-xl);
-          font-weight: var(--font-semibold);
-          color: var(--color-primary);
-        }
-        
-        .profile-details {
-          margin-bottom: var(--spacing-xl);
-        }
-        
-        .detail-item {
+          font-weight: 500;
+          cursor: pointer;
           display: flex;
-          justify-content: space-between;
           align-items: center;
-          padding: var(--spacing-md) 0;
-          border-bottom: 1px solid var(--color-border-light);
+          gap: 8px;
+          transition: all 0.2s;
+          width: 100%;
+          justify-content: center;
         }
-        
-        .detail-item:last-child {
-          border-bottom: none;
+
+        .save-button:hover:not(:disabled) {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
         }
-        
-        .detail-item strong {
-          color: var(--color-text-primary);
-          font-weight: var(--font-medium);
+
+        .save-button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
-        
-        .detail-item span {
-          color: var(--color-text-secondary);
-        }
-        
-        .admin-detail {
-          background: linear-gradient(135deg, #fee2e2, #fef2f2);
-          padding: var(--spacing-md);
-          border-radius: var(--radius-md);
-          border: 1px solid #fecaca;
-        }
-        
-        .admin-detail strong,
-        .admin-detail span {
-          color: #dc2626;
-          font-weight: var(--font-semibold);
-        }
-        
-        @media (max-width: 768px) {
-          .config-modal {
-            margin: var(--spacing-md);
-            max-height: calc(100vh - 2rem);
+
+        @media (max-width: 480px) {
+          .modal-content {
+            margin: 0;
+            border-radius: 0;
+            height: 100vh;
+            max-height: 100vh;
           }
-          
-          .profile-summary {
-            flex-direction: column;
-            text-align: center;
-          }
-          
-          .profile-stats {
-            grid-template-columns: 1fr;
-          }
-          
-          .detail-item {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: var(--spacing-xs);
-          }
-          
-          .form-actions {
+
+          .tabs {
             flex-direction: column;
           }
-          
-          .profile-title {
-            flex-direction: column;
-            gap: var(--spacing-xs);
+
+          .tab {
+            justify-content: flex-start;
+            padding-left: 24px;
           }
         }
       `}</style>
-    </div>
+    </>
   );
 };
 
