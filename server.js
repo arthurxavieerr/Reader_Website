@@ -19,6 +19,23 @@ const prisma = new PrismaClient({
   },
 });
 
+// Estado de conexão
+let isConnected = false;
+
+// Função para conectar ao Prisma
+async function connectPrisma() {
+  if (!isConnected) {
+    try {
+      await prisma.$connect();
+      console.log('✅ Conectado ao banco de dados');
+      isConnected = true;
+    } catch (error) {
+      console.error('❌ Erro ao conectar ao banco:', error);
+      throw error;
+    }
+  }
+}
+
 // Middlewares
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
@@ -48,7 +65,7 @@ app.get('/api/test', async (req, res) => {
     console.log('PORT:', process.env.PORT);
     
     // Teste de conexão com banco
-    await prisma.$connect();
+    await connectPrisma();
     console.log('✅ Conexão com banco OK');
     
     // Teste uma query simples
@@ -80,6 +97,8 @@ app.get('/api/test', async (req, res) => {
 // GET /api/books - Listar livros
 app.get('/api/books', async (req, res) => {
   try {
+    await connectPrisma();
+    
     const books = await prisma.book.findMany({
       where: { active: true },
       select: {
@@ -347,6 +366,8 @@ const toPublicUser = (user) => ({
 // POST /api/auth/register - Registrar usuário
 app.post('/api/auth/register', async (req, res) => {
   try {
+    await connectPrisma();
+    
     const { name, email, phone, password } = req.body;
 
     if (!name || !email || !phone || !password) {
@@ -404,6 +425,8 @@ app.post('/api/auth/register', async (req, res) => {
 // POST /api/auth/login - Login usuário
 app.post('/api/auth/login', async (req, res) => {
   try {
+    await connectPrisma();
+    
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -461,6 +484,92 @@ app.post('/api/auth/login', async (req, res) => {
     res.json({ success: true, data: { user: publicUser, token } });
   } catch (error) {
     console.error('Login error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro interno do servidor' 
+    });
+  }
+});
+
+// GET /api/auth/me - Verificar token
+app.get('/api/auth/me', async (req, res) => {
+  try {
+    const decoded = authenticateRequest(req);
+    
+    if (!decoded) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Token inválido' 
+      });
+    }
+
+    await connectPrisma();
+    
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId }
+    });
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Usuário não encontrado' 
+      });
+    }
+
+    if (user.isSuspended) {
+      return res.status(403).json({ 
+        success: false, 
+        error: `Conta suspensa: ${user.suspendedReason || 'Violação dos termos de uso'}` 
+      });
+    }
+
+    const publicUser = toPublicUser(user);
+    res.json({ success: true, data: { user: publicUser } });
+  } catch (error) {
+    console.error('Auth me error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro interno do servidor' 
+    });
+  }
+});
+
+// POST /api/auth/complete-onboarding - Completar onboarding
+app.post('/api/auth/complete-onboarding', async (req, res) => {
+  try {
+    const decoded = authenticateRequest(req);
+    
+    if (!decoded) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Token inválido' 
+      });
+    }
+
+    await connectPrisma();
+    
+    const { commitment, incomeRange } = req.body;
+
+    if (!commitment || !incomeRange) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Commitment e incomeRange são obrigatórios' 
+      });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: decoded.userId },
+      data: {
+        commitment: commitment.toUpperCase(),
+        incomeRange: incomeRange.toUpperCase(),
+        onboardingCompleted: true
+      }
+    });
+
+    const publicUser = toPublicUser(updatedUser);
+    res.json({ success: true, data: { user: publicUser } });
+  } catch (error) {
+    console.error('Complete onboarding error:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Erro interno do servidor' 
