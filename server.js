@@ -43,12 +43,17 @@ app.get('/api/test', async (req, res) => {
     console.log('=== TESTE DE CONFIGURAÇÃO ===');
     console.log('NODE_ENV:', process.env.NODE_ENV);
     console.log('DATABASE_URL existe:', !!process.env.DATABASE_URL);
+    console.log('DATABASE_URL length:', process.env.DATABASE_URL?.length);
     console.log('JWT_SECRET existe:', !!process.env.JWT_SECRET);
     console.log('PORT:', process.env.PORT);
     
     // Teste de conexão com banco
     await prisma.$connect();
     console.log('✅ Conexão com banco OK');
+    
+    // Teste uma query simples
+    const userCount = await prisma.user.count();
+    console.log('✅ Query OK - Usuários:', userCount);
     
     res.json({ 
       success: true, 
@@ -57,14 +62,17 @@ app.get('/api/test', async (req, res) => {
         nodeEnv: process.env.NODE_ENV,
         hasDatabaseUrl: !!process.env.DATABASE_URL,
         hasJwtSecret: !!process.env.JWT_SECRET,
+        userCount,
         timestamp: new Date().toISOString()
       }
     });
   } catch (error) {
     console.error('❌ Erro no teste:', error);
+    console.error('Erro completo:', error.stack);
     res.status(500).json({ 
       success: false, 
-      error: error.message 
+      error: error.message,
+      details: error.stack
     });
   }
 });
@@ -288,10 +296,13 @@ app.get('*', (req, res) => {
 // ============================================
 const PORT = process.env.PORT || 3001;
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
   console.log(`📱 Ambiente: ${process.env.NODE_ENV}`);
   console.log(`🔗 API Test: http://localhost:${PORT}/api/test`);
+  
+  // Conectar ao banco na inicialização
+  await connectPrisma();
 });
 
 // Graceful shutdown
