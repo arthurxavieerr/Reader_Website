@@ -1,8 +1,14 @@
-// src/hooks/useAuth.tsx - CORRIGIDO
+// src/hooks/useAuth.tsx - VERSÃO FINAL CORRIGIDA
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
 import { User, AuthState, RegisterData, ApiResponse } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://beta-review-website.onrender.com/api';
+
+// Interface local para dados de onboarding
+interface OnboardingData {
+  commitment: 'committed' | 'curious';
+  incomeRange: 'low' | 'medium' | 'high' | 'unemployed';
+}
 
 // Tipos para o contexto
 interface AuthContextType extends AuthState {
@@ -10,6 +16,8 @@ interface AuthContextType extends AuthState {
   register: (userData: RegisterData) => Promise<void>;
   logout: () => void;
   updateUser: (userData: Partial<User>) => void;
+  completeOnboarding: (data: OnboardingData) => Promise<void>;
+  loading: boolean; // Alias para isLoading para compatibilidade
 }
 
 // Actions para o reducer
@@ -183,6 +191,49 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const completeOnboarding = async (data: OnboardingData) => {
+    dispatch({ type: 'SET_LOADING', payload: true });
+    dispatch({ type: 'SET_ERROR', payload: null });
+
+    try {
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        throw new Error('Token não encontrado');
+      }
+
+      const response = await fetch(`${API_BASE_URL}/auth/complete-onboarding`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Erro ao completar onboarding');
+      }
+
+      const responseData = await response.json();
+      
+      if (responseData.success && responseData.data.user) {
+        const updatedUser = responseData.data.user;
+        localStorage.setItem('beta-reader-user', JSON.stringify(updatedUser));
+        dispatch({ type: 'SET_USER', payload: updatedUser });
+        console.log('Onboarding completado com sucesso');
+      } else {
+        throw new Error('Resposta inválida do servidor');
+      }
+      
+    } catch (error: any) {
+      console.error('Erro no onboarding:', error);
+      dispatch({ type: 'SET_ERROR', payload: error.message || 'Erro no onboarding' });
+      throw error;
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('beta-reader-user');
@@ -199,10 +250,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const value: AuthContextType = {
     ...state,
+    loading: state.isLoading, // Alias para compatibilidade
     login,
     register,
     logout,
     updateUser,
+    completeOnboarding,
   };
 
   return (
