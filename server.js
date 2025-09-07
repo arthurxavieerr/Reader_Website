@@ -10,35 +10,19 @@ const { PrismaClient } = require('@prisma/client');
 // Configuração do Express
 const app = express();
 
-// Configuração do Prisma com pooling e reconexão
+// Configuração do Prisma com pooling
 const prisma = new PrismaClient({
   datasources: {
     db: {
       url: process.env.DATABASE_URL,
     },
   },
-  log: ['error', 'warn'],
 });
-
-// Conectar explicitamente
-let isConnected = false;
-async function connectPrisma() {
-  if (!isConnected) {
-    try {
-      await prisma.$connect();
-      isConnected = true;
-      console.log('✅ Prisma conectado');
-    } catch (error) {
-      console.error('❌ Erro ao conectar Prisma:', error);
-      isConnected = false;
-    }
-  }
-}
 
 // Middlewares
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://beta-review-website.onrender.com'] 
+    ? ['https://your-app.onrender.com'] // Substitua pelo seu domínio do Render
     : ['http://localhost:3000', 'http://localhost:5173'],
   credentials: true
 }));
@@ -96,8 +80,6 @@ app.get('/api/test', async (req, res) => {
 // GET /api/books - Listar livros
 app.get('/api/books', async (req, res) => {
   try {
-    await connectPrisma(); // Garante conexão antes da query
-    
     const books = await prisma.book.findMany({
       where: { active: true },
       select: {
@@ -118,36 +100,10 @@ app.get('/api/books', async (req, res) => {
     res.json({ success: true, data: { books } });
   } catch (error) {
     console.error('Books error:', error);
-    
-    // Tenta reconectar em caso de erro
-    isConnected = false;
-    try {
-      await connectPrisma();
-      // Segunda tentativa
-      const books = await prisma.book.findMany({
-        where: { active: true },
-        select: {
-          id: true,
-          title: true,
-          author: true,
-          genre: true,
-          synopsis: true,
-          baseRewardMoney: true,
-          requiredLevel: true,
-          reviewsCount: true,
-          averageRating: true,
-          createdAt: true
-        },
-        orderBy: { createdAt: 'desc' }
-      });
-      res.json({ success: true, data: { books } });
-    } catch (retryError) {
-      console.error('Retry failed:', retryError);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Erro ao buscar livros' 
-      });
-    }
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro ao buscar livros' 
+    });
   }
 });
 
