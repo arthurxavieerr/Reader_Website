@@ -1,108 +1,102 @@
-// src/hooks/useAuth.tsx - VERSÃO FINAL COM API REAL
+// src/hooks/useAuth.tsx - CORRIGIDO
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
-import { User, AuthState, AuthActions, RegisterData, OnboardingData, getLevelInfo } from '../types';
+import { User, AuthState, RegisterData, ApiResponse } from '../types';
 
-// Configuração da API - agora usando server.js
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://beta-review-website.onrender.com/api';
 
-type AuthAction =
+// Tipos para o contexto
+interface AuthContextType extends AuthState {
+  login: (email: string, password: string) => Promise<void>;
+  register: (userData: RegisterData) => Promise<void>;
+  logout: () => void;
+  updateUser: (userData: Partial<User>) => void;
+}
+
+// Actions para o reducer
+type AuthAction = 
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_USER'; payload: User | null }
   | { type: 'SET_ERROR'; payload: string | null }
-  | { type: 'UPDATE_USER'; payload: Partial<User> };
+  | { type: 'LOGOUT' };
 
+// Reducer
 const authReducer = (state: AuthState, action: AuthAction): AuthState => {
   switch (action.type) {
     case 'SET_LOADING':
-      return { ...state, loading: action.payload };
+      return { ...state, isLoading: action.payload };
     case 'SET_USER':
-      return { ...state, user: action.payload, loading: false, error: null };
+      return { ...state, user: action.payload, error: null, isLoading: false };
     case 'SET_ERROR':
-      return { ...state, error: action.payload, loading: false };
-    case 'UPDATE_USER':
-      return {
-        ...state,
-        user: state.user ? { ...state.user, ...action.payload } : null,
-      };
+      return { ...state, error: action.payload, isLoading: false };
+    case 'LOGOUT':
+      return { user: null, isLoading: false, error: null };
     default:
       return state;
   }
 };
 
-const AuthContext = createContext<(AuthState & AuthActions) | undefined>(undefined);
+// Estado inicial
+const initialState: AuthState = {
+  user: null,
+  isLoading: true,
+  error: null,
+};
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [state, dispatch] = useReducer(authReducer, {
-    user: null,
-    loading: true,
-    error: null,
-  });
+// Contexto
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-  // Função utilitária para requisições autenticadas
-  const makeAuthenticatedRequest = async (endpoint: string, options: RequestInit = {}) => {
-    const token = localStorage.getItem('token');
-    
-    if (!token) {
-      throw new Error('Token não encontrado');
-    }
+// Provider
+interface AuthProviderProps {
+  children: ReactNode;
+}
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        ...options.headers,
-      },
-    });
+export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+  const [state, dispatch] = useReducer(authReducer, initialState);
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        // Token expirado - fazer logout
-        localStorage.removeItem('token');
-        localStorage.removeItem('beta-reader-user');
-        dispatch({ type: 'SET_USER', payload: null });
-        throw new Error('Sessão expirada');
-      }
-      
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `Erro ${response.status}`);
-    }
-
-    return response.json();
-  };
-
-  // Verificar autenticação na inicialização
+  // Verificar autenticação ao inicializar
   useEffect(() => {
     const checkAuth = async () => {
+      dispatch({ type: 'SET_LOADING', payload: true });
+      
       try {
         const token = localStorage.getItem('token');
+        const userData = localStorage.getItem('beta-reader-user');
         
-        if (!token) {
-          dispatch({ type: 'SET_LOADING', payload: false });
-          return;
-        }
+        if (token && userData && !token.startsWith('mock-')) {
+          const user = JSON.parse(userData);
+          
+          // Verificar se o token ainda é válido
+          const response = await fetch(`${API_BASE_URL}/auth/me`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          });
 
-        // Verificar token com o servidor
-        const data = await makeAuthenticatedRequest('/auth/me');
-        
-        if (data.success && data.data.user) {
-          localStorage.setItem('beta-reader-user', JSON.stringify(data.data.user));
-          dispatch({ type: 'SET_USER', payload: data.data.user });
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.data.user) {
+              dispatch({ type: 'SET_USER', payload: data.data.user });
+              localStorage.setItem('beta-reader-user', JSON.stringify(data.data.user));
+            } else {
+              throw new Error('Token inválido');
+            }
+          } else {
+            throw new Error('Token expirado');
+          }
+        } else if (userData && token?.startsWith('mock-')) {
+          // Usuário mock (para desenvolvimento)
+          const user = JSON.parse(userData);
+          dispatch({ type: 'SET_USER', payload: user });
         } else {
-          // Token inválido
-          localStorage.removeItem('token');
-          localStorage.removeItem('beta-reader-user');
           dispatch({ type: 'SET_LOADING', payload: false });
         }
-        
-      } catch (error: any) {
-        console.error('Erro ao verificar autenticação:', error);
-        
-        // Limpar dados inválidos
+      } catch (error) {
+        console.error('Erro na verificação de autenticação:', error);
         localStorage.removeItem('token');
         localStorage.removeItem('beta-reader-user');
         
-        if (error.message === 'Sessão expirada') {
+        if (error instanceof Error && error.message.includes('Token')) {
           dispatch({ type: 'SET_ERROR', payload: 'Sessão expirada. Faça login novamente.' });
         } else {
           dispatch({ type: 'SET_ERROR', payload: 'Erro ao conectar com o servidor' });
@@ -167,7 +161,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Erro no cadastro');
+        throw new Error(errorData.error || 'Erro no registro');
       }
 
       const data = await response.json();
@@ -184,7 +178,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       
     } catch (error: any) {
       console.error('Erro no registro:', error);
-      dispatch({ type: 'SET_ERROR', payload: error.message || 'Erro no cadastro' });
+      dispatch({ type: 'SET_ERROR', payload: error.message || 'Erro no registro' });
       throw error;
     }
   };
@@ -192,106 +186,37 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('beta-reader-user');
-    dispatch({ type: 'SET_USER', payload: null });
-    console.log('Logout realizado');
+    dispatch({ type: 'LOGOUT' });
   };
 
-  const completeOnboarding = async (data: OnboardingData) => {
-    if (!state.user) {
-      throw new Error('Usuário não autenticado');
-    }
-
-    dispatch({ type: 'SET_LOADING', payload: true });
-    dispatch({ type: 'SET_ERROR', payload: null });
-
-    try {
-      const result = await makeAuthenticatedRequest('/auth/onboarding', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-
-      if (result.success && result.data.user) {
-        localStorage.setItem('beta-reader-user', JSON.stringify(result.data.user));
-        dispatch({ type: 'SET_USER', payload: result.data.user });
-        console.log('Onboarding completado com sucesso');
-      } else {
-        throw new Error('Resposta inválida do servidor');
-      }
-      
-    } catch (error: any) {
-      console.error('Erro no onboarding:', error);
-      dispatch({ type: 'SET_ERROR', payload: error.message || 'Erro ao completar onboarding' });
-      throw error;
+  const updateUser = (userData: Partial<User>) => {
+    if (state.user) {
+      const updatedUser = { ...state.user, ...userData };
+      localStorage.setItem('beta-reader-user', JSON.stringify(updatedUser));
+      dispatch({ type: 'SET_USER', payload: updatedUser });
     }
   };
 
-  const updateProfile = async (data: Partial<User>) => {
-    if (!state.user) {
-      throw new Error('Usuário não autenticado');
-    }
-
-    dispatch({ type: 'SET_LOADING', payload: true });
-    dispatch({ type: 'SET_ERROR', payload: null });
-
-    try {
-      const result = await makeAuthenticatedRequest('/auth/update-profile', {
-        method: 'PATCH',
-        body: JSON.stringify(data),
-      });
-
-      if (result.success && result.data.user) {
-        localStorage.setItem('beta-reader-user', JSON.stringify(result.data.user));
-        dispatch({ type: 'SET_USER', payload: result.data.user });
-        console.log('Perfil atualizado com sucesso');
-      } else {
-        throw new Error('Resposta inválida do servidor');
-      }
-      
-    } catch (error: any) {
-      console.error('Erro ao atualizar perfil:', error);
-      dispatch({ type: 'SET_ERROR', payload: error.message || 'Erro ao atualizar perfil' });
-      throw error;
-    }
-  };
-
-  // Funções utilitárias
-  const getCurrentLevelName = (): string => {
-    if (!state.user) return 'Visitante';
-    if (state.user.isAdmin) return 'Admin';
-    const levelInfo = getLevelInfo(state.user.level, state.user.isAdmin);
-    return levelInfo.name;
-  };
-
-  const getCurrentLevelColor = (): string => {
-    if (!state.user) return '#64748b';
-    if (state.user.isAdmin) return '#dc2626';
-    const levelInfo = getLevelInfo(state.user.level, state.user.isAdmin);
-    return levelInfo.color;
-  };
-
-  const isCurrentUserAdmin = (): boolean => {
-    return state.user?.isAdmin || false;
-  };
-
-  const value = {
+  const value: AuthContextType = {
     ...state,
     login,
     register,
     logout,
-    completeOnboarding,
-    updateProfile,
-    getCurrentLevelName,
-    getCurrentLevelColor,
-    isCurrentUserAdmin,
+    updateUser,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
-export const useAuth = () => {
+// Hook para usar o contexto
+export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+  if (!context) {
+    throw new Error('useAuth deve ser usado dentro de um AuthProvider');
   }
   return context;
 };

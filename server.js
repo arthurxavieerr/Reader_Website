@@ -151,6 +151,188 @@ app.get('/api/books', async (req, res) => {
   }
 });
 
+// GET /api/books/:id - Buscar livro individual
+app.get('/api/books/:id', async (req, res) => {
+  try {
+    await connectPrisma();
+    
+    const { id } = req.params;
+    
+    const book = await prisma.book.findFirst({
+      where: { 
+        id: id,
+        active: true 
+      },
+      select: {
+        id: true,
+        title: true,
+        author: true,
+        genre: true,
+        synopsis: true,
+        baseRewardMoney: true,
+        rewardPoints: true,
+        requiredLevel: true,
+        reviewsCount: true,
+        averageRating: true,
+        estimatedReadTime: true,
+        wordCount: true,
+        pageCount: true,
+        isInitialBook: true,
+        createdAt: true
+      }
+    });
+
+    if (!book) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Livro não encontrado' 
+      });
+    }
+
+    res.json({ success: true, data: { book } });
+  } catch (error) {
+    console.error('Book by ID error:', error);
+    
+    // Tenta reconectar em caso de erro
+    isConnected = false;
+    try {
+      await connectPrisma();
+      const book = await prisma.book.findFirst({
+        where: { 
+          id: req.params.id,
+          active: true 
+        },
+        select: {
+          id: true,
+          title: true,
+          author: true,
+          genre: true,
+          synopsis: true,
+          baseRewardMoney: true,
+          rewardPoints: true,
+          requiredLevel: true,
+          reviewsCount: true,
+          averageRating: true,
+          estimatedReadTime: true,
+          wordCount: true,
+          pageCount: true,
+          isInitialBook: true,
+          createdAt: true
+        }
+      });
+      
+      if (!book) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Livro não encontrado' 
+        });
+      }
+      
+      res.json({ success: true, data: { book } });
+    } catch (retryError) {
+      console.error('Retry failed:', retryError);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Erro ao buscar livro' 
+      });
+    }
+  }
+});
+
+// GET /api/books/:id/content - Buscar conteúdo do livro
+app.get('/api/books/:id/content', async (req, res) => {
+  try {
+    await connectPrisma();
+    
+    const { id } = req.params;
+    
+    const book = await prisma.book.findFirst({
+      where: { 
+        id: id,
+        active: true 
+      },
+      select: {
+        id: true,
+        title: true,
+        author: true,
+        content: true
+      }
+    });
+
+    if (!book) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Livro não encontrado' 
+      });
+    }
+
+    if (!book.content) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Conteúdo do livro não encontrado' 
+      });
+    }
+
+    res.json({ 
+      success: true, 
+      data: { 
+        content: book.content,
+        title: book.title,
+        author: book.author
+      } 
+    });
+  } catch (error) {
+    console.error('Book content error:', error);
+    
+    // Tenta reconectar em caso de erro
+    isConnected = false;
+    try {
+      await connectPrisma();
+      const book = await prisma.book.findFirst({
+        where: { 
+          id: req.params.id,
+          active: true 
+        },
+        select: {
+          id: true,
+          title: true,
+          author: true,
+          content: true
+        }
+      });
+      
+      if (!book) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Livro não encontrado' 
+        });
+      }
+
+      if (!book.content) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Conteúdo do livro não encontrado' 
+        });
+      }
+      
+      res.json({ 
+        success: true, 
+        data: { 
+          content: book.content,
+          title: book.title,
+          author: book.author
+        } 
+      });
+    } catch (retryError) {
+      console.error('Retry failed:', retryError);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Erro ao buscar conteúdo do livro' 
+      });
+    }
+  }
+});
+
 // Funções utilitárias
 function generateToken(userId, email, isAdmin) {
   return jwt.sign(
