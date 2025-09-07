@@ -3,7 +3,7 @@ import React, { createContext, useContext, useReducer, useEffect, ReactNode } fr
 import { User, AuthState, AuthActions, RegisterData, OnboardingData, getLevelInfo } from '../types';
 
 // Configuração da API - agora usando server.js
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://beta-review777.vercel.app/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://beta-review-website.onrender.com/api';
 
 type AuthAction =
   | { type: 'SET_LOADING'; payload: boolean }

@@ -1,7 +1,7 @@
 // src/services/api.ts - SOLUÇÃO HÍBRIDA
 import { ApiResponse } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://beta-review777.vercel.app/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://beta-review-website.onrender.com/api';
 
 // Mock data para livros
 const MOCK_BOOKS = [
