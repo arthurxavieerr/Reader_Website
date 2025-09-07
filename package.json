@@ -1,5 +1,5 @@
 {
-  "name": "beta-review",
+  "name": "beta-reader-go",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -7,9 +7,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "start": "node server.js",
-    "render:build": "npm install && npm run build && npx prisma generate && npx prisma db push",
-    "db:generate": "prisma generate",
-    "db:push": "prisma db push"
+    "render:build": "npm install && npm run build && npx prisma generate",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
