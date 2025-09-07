@@ -2,8 +2,14 @@
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
 import { User, AuthState, RegisterData, ApiResponse } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://beta-review-website.onrender.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL 
+  ? `${import.meta.env.VITE_API_URL}/api`
+  : 'https://beta-review-website.onrender.com/api';
 
+
+console.log('🔧 API_BASE_URL configurada:', API_BASE_URL);
+console.log('🔧 VITE_API_URL:', import.meta.env.VITE_API_URL);
+  
 // Interface local para dados de onboarding
 interface OnboardingData {
   commitment: 'committed' | 'curious';
