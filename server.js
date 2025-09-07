@@ -1,4 +1,4 @@
-// server.js - CONFIGURAÇÃO MELHORADA PARA RENDER + SUPABASE
+// server.js - VERSÃO COMPLETA COM AUTENTICAÇÃO
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -17,7 +17,6 @@ const prisma = new PrismaClient({
       url: process.env.DATABASE_URL,
     },
   },
-  // Configurações específicas para produção no Render
   log: ['error', 'warn'],
   errorFormat: 'minimal',
 });
@@ -43,7 +42,6 @@ async function connectPrisma(retries = 3) {
           throw error;
         }
         
-        // Aguarda antes da próxima tentativa
         console.log(`⏳ Aguardando ${attempt * 2} segundos antes da próxima tentativa...`);
         await new Promise(resolve => setTimeout(resolve, attempt * 2000));
       }
@@ -54,7 +52,7 @@ async function connectPrisma(retries = 3) {
 // Middlewares
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://beta-review-website.onrender.com', 'https://your-app.onrender.com'] 
+    ? ['https://beta-review-website.onrender.com'] 
     : ['http://localhost:3000', 'http://localhost:5173'],
   credentials: true
 }));
@@ -107,41 +105,30 @@ function toPublicUser(user) {
 // ROTAS DA API
 // ============================================
 
-// GET /api/test - Rota de teste melhorada
+// GET /api/test - Rota de teste
 app.get('/api/test', async (req, res) => {
   try {
-    console.log('=== TESTE DE CONFIGURAÇÃO DETALHADO ===');
+    console.log('=== TESTE DE CONFIGURAÇÃO ===');
     console.log('NODE_ENV:', process.env.NODE_ENV);
     console.log('DATABASE_URL existe:', !!process.env.DATABASE_URL);
-    console.log('DATABASE_URL primeiros 50 chars:', process.env.DATABASE_URL?.substring(0, 50) + '...');
     console.log('JWT_SECRET existe:', !!process.env.JWT_SECRET);
     console.log('PORT:', process.env.PORT);
     
-    // Informações sobre o ambiente
     const environmentInfo = {
       nodeEnv: process.env.NODE_ENV,
       hasDatabaseUrl: !!process.env.DATABASE_URL,
       hasJwtSecret: !!process.env.JWT_SECRET,
       port: process.env.PORT,
-      timestamp: new Date().toISOString(),
-      nodeVersion: process.version,
-      platform: process.platform
+      timestamp: new Date().toISOString()
     };
 
-    // Teste de conexão com banco
+    // Teste de conexão com banco (sem falhar se não conectar)
     try {
       await connectPrisma();
-      console.log('✅ Conexão com banco OK');
-      
-      // Teste uma query simples
       const userCount = await prisma.user.count();
-      console.log('✅ Query OK - Usuários:', userCount);
-      
       environmentInfo.databaseConnection = 'success';
       environmentInfo.userCount = userCount;
-      
     } catch (dbError) {
-      console.error('❌ Erro de banco específico:', dbError);
       environmentInfo.databaseConnection = 'failed';
       environmentInfo.databaseError = dbError.message;
     }
@@ -153,16 +140,15 @@ app.get('/api/test', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Erro geral no teste:', error);
+    console.error('❌ Erro no teste:', error);
     res.status(500).json({ 
       success: false, 
-      error: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      error: error.message
     });
   }
 });
 
-// Health check para o Render
+// Health check
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
@@ -171,7 +157,224 @@ app.get('/health', (req, res) => {
   });
 });
 
-// GET /api/books - Listar livros com tratamento de erro melhorado
+// ============================================
+// ROTAS DE AUTENTICAÇÃO
+// ============================================
+
+// POST /api/auth/register - Registrar usuário
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    await connectPrisma();
+    
+    const { name, email, phone, password } = req.body;
+
+    if (!name || !email || !phone || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Todos os campos são obrigatórios' 
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Senha deve ter pelo menos 6 caracteres' 
+      });
+    }
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (existingUser) {
+      return res.status(409).json({ 
+        success: false, 
+        error: 'Email já está em uso' 
+      });
+    }
+
+    const salt = await bcrypt.genSalt(12);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    const newUser = await prisma.user.create({
+      data: {
+        name: name.trim(),
+        email: email.toLowerCase().trim(),
+        phone: phone.trim(),
+        passwordHash,
+        salt,
+        lastLoginIP: req.ip || 'unknown'
+      }
+    });
+
+    const token = generateToken(newUser.id, newUser.email, newUser.isAdmin);
+    const publicUser = toPublicUser(newUser);
+
+    res.json({ success: true, data: { user: publicUser, token } });
+  } catch (error) {
+    console.error('Register error:', error);
+    
+    // Resetar conexão em caso de erro
+    isConnected = false;
+    
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro interno do servidor' 
+    });
+  }
+});
+
+// POST /api/auth/login - Login usuário
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    await connectPrisma();
+    
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Email e senha são obrigatórios' 
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (!user) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Email ou senha inválidos' 
+      });
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
+    if (!isValidPassword) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Email ou senha inválidos' 
+      });
+    }
+
+    // Atualizar último login
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastLoginAt: new Date(),
+        lastLoginIP: req.ip || 'unknown'
+      }
+    });
+
+    const token = generateToken(user.id, user.email, user.isAdmin);
+    const publicUser = toPublicUser(user);
+
+    res.json({ success: true, data: { user: publicUser, token } });
+  } catch (error) {
+    console.error('Login error:', error);
+    
+    // Resetar conexão em caso de erro
+    isConnected = false;
+    
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro interno do servidor' 
+    });
+  }
+});
+
+// GET /api/auth/me - Verificar usuário autenticado
+app.get('/api/auth/me', async (req, res) => {
+  try {
+    const decoded = authenticateRequest(req);
+    
+    if (!decoded) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Token inválido' 
+      });
+    }
+
+    await connectPrisma();
+
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId }
+    });
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Usuário não encontrado' 
+      });
+    }
+
+    const publicUser = toPublicUser(user);
+    res.json({ success: true, data: { user: publicUser } });
+  } catch (error) {
+    console.error('Me error:', error);
+    
+    // Resetar conexão em caso de erro
+    isConnected = false;
+    
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro interno do servidor' 
+    });
+  }
+});
+
+// POST /api/auth/complete-onboarding - Completar onboarding
+app.post('/api/auth/complete-onboarding', async (req, res) => {
+  try {
+    const decoded = authenticateRequest(req);
+    
+    if (!decoded) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Token inválido' 
+      });
+    }
+
+    await connectPrisma();
+    
+    const { commitment, incomeRange } = req.body;
+
+    if (!commitment || !incomeRange) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Commitment e incomeRange são obrigatórios' 
+      });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: decoded.userId },
+      data: {
+        commitment: commitment.toUpperCase(),
+        incomeRange: incomeRange.toUpperCase(),
+        onboardingCompleted: true
+      }
+    });
+
+    const publicUser = toPublicUser(updatedUser);
+    res.json({ success: true, data: { user: publicUser } });
+  } catch (error) {
+    console.error('Complete onboarding error:', error);
+    
+    // Resetar conexão em caso de erro
+    isConnected = false;
+    
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro interno do servidor' 
+    });
+  }
+});
+
+// ============================================
+// ROTAS DE LIVROS
+// ============================================
+
+// GET /api/books - Listar livros
 app.get('/api/books', async (req, res) => {
   try {
     await connectPrisma();
@@ -202,11 +405,66 @@ app.get('/api/books', async (req, res) => {
     
     res.status(500).json({ 
       success: false, 
-      error: 'Erro ao buscar livros',
-      retryable: true
+      error: 'Erro ao buscar livros' 
     });
   }
 });
+
+// GET /api/books/:id - Buscar livro individual
+app.get('/api/books/:id', async (req, res) => {
+  try {
+    await connectPrisma();
+    
+    const { id } = req.params;
+    
+    const book = await prisma.book.findFirst({
+      where: { 
+        id: id,
+        active: true 
+      },
+      select: {
+        id: true,
+        title: true,
+        author: true,
+        genre: true,
+        synopsis: true,
+        baseRewardMoney: true,
+        rewardPoints: true,
+        requiredLevel: true,
+        reviewsCount: true,
+        averageRating: true,
+        estimatedReadTime: true,
+        wordCount: true,
+        pageCount: true,
+        isInitialBook: true,
+        createdAt: true
+      }
+    });
+
+    if (!book) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Livro não encontrado' 
+      });
+    }
+
+    res.json({ success: true, data: { book } });
+  } catch (error) {
+    console.error('Book by ID error:', error);
+    
+    // Resetar conexão em caso de erro
+    isConnected = false;
+    
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro interno do servidor' 
+    });
+  }
+});
+
+// ============================================
+// CATCH-ALL PARA REACT APP
+// ============================================
 
 // Todas as outras rotas retornam o React app
 app.get('*', (req, res) => {
@@ -227,14 +485,14 @@ app.use((error, req, res, next) => {
   });
 });
 
-// Iniciar servidor SEM conectar ao banco imediatamente
+// Iniciar servidor
 const server = app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
   console.log(`📱 Ambiente: ${process.env.NODE_ENV}`);
   console.log(`🔗 API Test: https://beta-review-website.onrender.com/api/test`);
   console.log(`🏥 Health Check: https://beta-review-website.onrender.com/health`);
   
-  // Conectar ao banco APÓS o servidor estar rodando
+  // Tentar conectar ao banco APÓS o servidor estar rodando
   setTimeout(async () => {
     console.log('🔄 Iniciando conexão com banco...');
     try {
@@ -245,7 +503,7 @@ const server = app.listen(PORT, () => {
   }, 1000);
 });
 
-// Graceful shutdown melhorado
+// Graceful shutdown
 const gracefulShutdown = async (signal) => {
   console.log(`🔔 Recebido sinal ${signal}, iniciando shutdown graceful...`);
   
@@ -276,7 +534,6 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 // Capturar erros não tratados
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  // Reset conexão em caso de erro de banco
   if (reason?.message?.includes('database') || reason?.message?.includes('Prisma')) {
     isConnected = false;
   }
