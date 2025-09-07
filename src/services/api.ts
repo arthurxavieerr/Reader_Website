@@ -1,7 +1,7 @@
 // src/services/api.ts - MIGRADO PARA API REAL
 import { ApiResponse } from '../types';
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || 'https://beta-review-website.onrender.com').replace(/\/api$/, '') + '/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://beta-review-website.onrender.com/api';
 
 class ApiService {
   private getAuthHeaders(): HeadersInit {
