@@ -6,7 +6,7 @@
     "module": "ESNext",
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"],
+    "types": ["vite/client", "node"],
 
     /* Bundler mode */
     "moduleResolution": "bundler",
@@ -31,15 +31,11 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
-    "api/**/*.ts",
-    "prisma/**/*.ts"
+    "src/vite-env.d.ts"
   ],
   "exclude": [
     "node_modules",
     "dist",
-    "backend"
-  ],
-  "references": [
-    { "path": "./tsconfig.node.json" }
+    "server.js"
   ]
 }
