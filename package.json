@@ -16,6 +16,9 @@
     "full:dev": "concurrently \"npm run server:dev\" \"npm run dev\"",
     "local:setup": "echo 'Criando ambiente local...' && echo 'Execute: npm run server:dev (terminal 1) e npm run dev (terminal 2)'"
   },
+  "prisma": {
+    "seed": "npx tsx prisma/seed.ts"
+  },
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "@types/node": "^20.19.12",

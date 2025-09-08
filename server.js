@@ -1,4 +1,4 @@
-// server.js - CONFIGURADO PARA LOCALHOST (VERSÃO COMPLETA)
+// server.js - CONFIGURADO PARA LOCALHOST (VERSÃO ORIGINAL QUE FUNCIONAVA)
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -20,7 +20,7 @@ if (isDebug) {
   console.log('📍 PORT:', process.env.PORT);
 }
 
-// Configuração simples do Prisma
+// Configuração simples do Prisma (ORIGINAL)
 const prisma = new PrismaClient({
   datasources: {
     db: {
@@ -30,12 +30,11 @@ const prisma = new PrismaClient({
   log: isDebug ? ['info', 'warn', 'error'] : ['error', 'warn'],
 });
 
-// Função de conexão simplificada - SEM TESTE NA INICIALIZAÇÃO
+// Função de conexão simplificada (ORIGINAL)
 let isConnected = false;
 
 async function ensureConnection(req, res, next) {
   try {
-    // Conectar apenas se necessário, sem testes complexos
     if (!isConnected) {
       await prisma.$connect();
       isConnected = true;
