@@ -9,7 +9,12 @@
     "start": "npx prisma generate && node server.js",
     "render:build": "npm install && npm run build && npx prisma generate",
     "db:push": "prisma db push",
-    "db:generate": "prisma generate"
+    "db:generate": "prisma generate",
+    "server": "node server.js",
+    "server:dev": "NODE_ENV=development DEBUG=true node server.js",
+    "server:prod": "NODE_ENV=production node server.js",
+    "full:dev": "concurrently \"npm run server:dev\" \"npm run dev\"",
+    "local:setup": "echo 'Criando ambiente local...' && echo 'Execute: npm run server:dev (terminal 1) e npm run dev (terminal 2)'"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -39,6 +44,8 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@typescript-eslint/eslint-plugin": "^6.14.0",
     "@typescript-eslint/parser": "^6.14.0",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
     "eslint": "^8.55.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
