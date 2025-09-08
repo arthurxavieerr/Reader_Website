@@ -1,138 +1,80 @@
-// src/pages/BooksPage.tsx - VERSÃO CORRIGIDA SEM API
+// src/pages/BooksPage.tsx - CONECTADO À API REAL
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { apiService } from '../services/api';
 import { BookOpen, Users, Lock, Star, Crown, Award, Clock, Zap, TrendingUp } from 'lucide-react';
 import { LEVELS } from '../types';
 
-// Mock data para livros
-const MOCK_BOOKS = [
-  {
-    id: '1',
-    title: 'A Caixa de Pandora',
-    author: 'Hesíodo',
-    genre: 'Mitologia grega',
-    synopsis: 'Descubra o conto mitológico de Pandora, que nos revela a origem dos males do mundo e o dom da esperança.',
-    rewardMoney: 1000, // R$ 10,00 em centavos
-    rewardPoints: 100,
-    reviewsCount: 84288,
-    averageRating: 4.5,
-    estimatedReadTime: 7, // em minutos
-    difficulty: 'Fácil',
-    isAvailable: true,
-    requiredLevel: 0,
-    hasReceivedReward: false,
-    createdAt: '2024-01-01T00:00:00.000Z'
-  },
-  {
-    id: '2',
-    title: 'O Príncipe e a Gata',
-    author: 'Charles Perrault',
-    genre: 'Conto de fadas',
-    synopsis: 'Era uma vez um rei, pai de três corajosos príncipes, que estava em dúvida sobre qual deles deveria lhe suceder no trono.',
-    rewardMoney: 2000, // R$ 20,00 em centavos
-    rewardPoints: 150,
-    reviewsCount: 12947,
-    averageRating: 4.3,
-    estimatedReadTime: 8,
-    difficulty: 'Fácil',
-    isAvailable: true,
-    requiredLevel: 0,
-    hasReceivedReward: false,
-    createdAt: '2024-01-02T00:00:00.000Z'
-  },
-  {
-    id: '3',
-    title: 'O Banqueiro Anarquista',
-    author: 'Fernando Pessoa',
-    genre: 'Ensaio filosófico',
-    synopsis: 'Ensaio filosófico em forma de diálogo, onde um banqueiro se declara anarquista.',
-    rewardMoney: 3000, // R$ 30,00 em centavos
-    rewardPoints: 200,
-    reviewsCount: 11698,
-    averageRating: 4.7,
-    estimatedReadTime: 93,
-    difficulty: 'Médio',
-    isAvailable: true,
-    requiredLevel: 0,
-    hasReceivedReward: false,
-    createdAt: '2024-01-03T00:00:00.000Z'
-  },
-  {
-    id: '4',
-    title: 'De Quanta Terra um Homem Precisa?',
-    author: 'Liev Tolstói',
-    genre: 'Literatura russa',
-    synopsis: 'Um conto sobre ambição e as verdadeiras necessidades humanas.',
-    rewardMoney: 5000, // R$ 50,00 em centavos
-    rewardPoints: 300,
-    reviewsCount: 8754,
-    averageRating: 4.6,
-    estimatedReadTime: 18,
-    difficulty: 'Médio',
-    isAvailable: true,
-    requiredLevel: 0,
-    hasReceivedReward: false,
-    createdAt: '2024-01-04T00:00:00.000Z'
-  },
-  {
-    id: '5',
-    title: 'O Último Detetive de Baker Street',
-    author: 'Eduardo Santos',
-    genre: 'Mistério Urbano',
-    synopsis: 'Mistérios sombrios nas ruas de Londres com um detetive excepcional.',
-    rewardMoney: 8000, // R$ 80,00 em centavos
-    rewardPoints: 400,
-    reviewsCount: 5621,
-    averageRating: 4.4,
-    estimatedReadTime: 14,
-    difficulty: 'Difícil',
-    isAvailable: false,
-    requiredLevel: 1,
-    hasReceivedReward: false,
-    createdAt: '2024-01-05T00:00:00.000Z'
-  },
-  {
-    id: '6',
-    title: 'Suspeito Comum',
-    author: 'Maria Silva',
-    genre: 'Thriller psicológico',
-    synopsis: 'Um thriller que questiona a natureza da culpa e inocência.',
-    rewardMoney: 6000, // R$ 60,00 em centavos
-    rewardPoints: 350,
-    reviewsCount: 3245,
-    averageRating: 4.8,
-    estimatedReadTime: 12,
-    difficulty: 'Difícil',
-    isAvailable: false,
-    requiredLevel: 2,
-    hasReceivedReward: false,
-    createdAt: '2024-01-06T00:00:00.000Z'
-  }
-];
+// Tipos para livros da API
+interface Book {
+  id: string;
+  title: string;
+  author: string;
+  genre: string;
+  synopsis: string;
+  baseRewardMoney: number;
+  requiredLevel: number;
+  reviewsCount: number;
+  averageRating: number;
+  createdAt: string;
+  active?: boolean;
+  // Campos calculados localmente
+  rewardMoney?: number;
+  rewardPoints?: number;
+  estimatedReadTime?: number;
+  difficulty?: string;
+  isAvailable?: boolean;
+  hasReceivedReward?: boolean;
+}
 
 const BooksPage: React.FC = () => {
   const { user } = useAuth();
+  const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Simular carregamento dos dados
+  // Carregar livros da API
   useEffect(() => {
     const loadBooks = async () => {
       try {
-        // Simular delay de carregamento
-        await new Promise(resolve => setTimeout(resolve, 800));
+        setLoading(true);
+        setError(null);
         
-        console.log('📚 Livros carregados com dados mock');
-        setLoading(false);
-      } catch (err) {
-        setError('Erro ao carregar livros');
+        console.log('🔄 Carregando livros da API...');
+        const response = await apiService.getBooks();
+        
+        if (response.success && response.data?.books) {
+          // Processar dados da API para formato compatível
+          const processedBooks = response.data.books.map(book => ({
+            ...book,
+            // Converter valores da API para formato esperado pela UI
+            rewardMoney: Math.floor((book.baseRewardMoney || 10000) / 100), // Converter centavos para reais
+            rewardPoints: Math.floor((book.baseRewardMoney || 10000) / 200), // Pontos baseados na recompensa
+            estimatedReadTime: Math.max(5, Math.floor(Math.random() * 60) + 5), // Mock do tempo de leitura
+            difficulty: book.baseRewardMoney > 40000 ? 'Difícil' : book.baseRewardMoney > 20000 ? 'Médio' : 'Fácil',
+            isAvailable: (book.requiredLevel || 0) <= (user?.level || 0),
+            hasReceivedReward: false // Mock - deveria vir da API
+          }));
+          
+          setBooks(processedBooks);
+          console.log(`✅ ${processedBooks.length} livros carregados da API`);
+        } else {
+          throw new Error('Resposta inválida da API');
+        }
+        
+      } catch (err: any) {
+        console.error('❌ Erro ao carregar livros:', err);
+        setError(err.message || 'Erro ao carregar livros');
+      } finally {
         setLoading(false);
       }
     };
 
-    loadBooks();
-  }, []);
+    if (user) {
+      loadBooks();
+    }
+  }, [user]);
 
   if (!user) return null;
 
@@ -171,11 +113,11 @@ const BooksPage: React.FC = () => {
 
   // Processar livros baseado no nível do usuário
   const userLevel = user.level || 0;
-  const availableBooks = MOCK_BOOKS.filter(book => 
-    book.isAvailable && book.requiredLevel <= userLevel
+  const availableBooks = books.filter(book => 
+    book.isAvailable && (book.requiredLevel || 0) <= userLevel
   );
-  const lockedBooks = MOCK_BOOKS.filter(book => 
-    !book.isAvailable || book.requiredLevel > userLevel
+  const lockedBooks = books.filter(book => 
+    !book.isAvailable || (book.requiredLevel || 0) > userLevel
   );
 
   // Dados básicos do usuário
@@ -183,7 +125,7 @@ const BooksPage: React.FC = () => {
   const nextLevel = LEVELS.find(level => level.level === user.level + 1);
 
   const formatCurrency = (value: number) => {
-    return `R$ ${(value / 100).toFixed(2).replace('.', ',')}`;
+    return `R$ ${value.toFixed(2).replace('.', ',')}`;
   };
 
   const formatTime = (minutes: number) => {
@@ -194,7 +136,7 @@ const BooksPage: React.FC = () => {
   };
 
   const getDifficultyColor = (difficulty: string) => {
-    switch (difficulty.toLowerCase()) {
+    switch (difficulty?.toLowerCase()) {
       case 'fácil': return '#10b981';
       case 'médio': return '#f59e0b';
       case 'difícil': return '#ef4444';
@@ -256,7 +198,7 @@ const BooksPage: React.FC = () => {
           </div>
           <div className="stat-item">
             <Award size={20} />
-            <span className="stat-value">{formatCurrency(user.balance)}</span>
+            <span className="stat-value">{formatCurrency((user.balance || 0) / 100)}</span>
             <span className="stat-label">Seu Saldo</span>
           </div>
         </div>
@@ -287,31 +229,31 @@ const BooksPage: React.FC = () => {
                     <div className="book-meta">
                       <div className="meta-item">
                         <Clock size={14} />
-                        <span>{formatTime(book.estimatedReadTime)}</span>
+                        <span>{formatTime(book.estimatedReadTime || 10)}</span>
                       </div>
                       <div className="meta-item">
                         <Star size={14} />
-                        <span>{book.averageRating.toFixed(1)}</span>
+                        <span>{(book.averageRating || 0).toFixed(1)}</span>
                       </div>
                       <div className="meta-item">
                         <Users size={14} />
-                        <span>{book.reviewsCount.toLocaleString()}</span>
+                        <span>{(book.reviewsCount || 0).toLocaleString()}</span>
                       </div>
                     </div>
                     
                     <div className="book-rewards">
                       <div className="reward-item">
                         <Zap size={16} />
-                        <span>{formatCurrency(book.rewardMoney)}</span>
+                        <span>{formatCurrency(book.rewardMoney || 0)}</span>
                       </div>
                       <div className="reward-item">
                         <Award size={16} />
-                        <span>{book.rewardPoints} pts</span>
+                        <span>{book.rewardPoints || 0} pts</span>
                       </div>
                     </div>
                     
-                    <div className="difficulty-badge" style={{ backgroundColor: getDifficultyColor(book.difficulty) }}>
-                      {book.difficulty}
+                    <div className="difficulty-badge" style={{ backgroundColor: getDifficultyColor(book.difficulty || 'Fácil') }}>
+                      {book.difficulty || 'Fácil'}
                     </div>
                   </div>
                   
@@ -345,7 +287,7 @@ const BooksPage: React.FC = () => {
                     <div className="cover-content">
                       <Lock size={32} />
                       <div className="lock-overlay">
-                        <span>Nível {book.requiredLevel}</span>
+                        <span>Nível {book.requiredLevel || 0}</span>
                       </div>
                     </div>
                   </div>
@@ -357,17 +299,17 @@ const BooksPage: React.FC = () => {
                     
                     <div className="unlock-requirement">
                       <Lock size={16} />
-                      <span>Requer nível {book.requiredLevel}</span>
+                      <span>Requer nível {book.requiredLevel || 0}</span>
                     </div>
                     
                     <div className="book-rewards">
                       <div className="reward-item">
                         <Zap size={16} />
-                        <span>{formatCurrency(book.rewardMoney)}</span>
+                        <span>{formatCurrency(book.rewardMoney || 0)}</span>
                       </div>
                       <div className="reward-item">
                         <Award size={16} />
-                        <span>{book.rewardPoints} pts</span>
+                        <span>{book.rewardPoints || 0} pts</span>
                       </div>
                     </div>
                   </div>
@@ -399,7 +341,7 @@ const BooksPage: React.FC = () => {
   );
 };
 
-// Estilos da página
+// Estilos da página (mantidos os mesmos)
 const loadingStyles = `
   .loading-state {
     text-align: center;

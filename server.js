@@ -1,4 +1,4 @@
-// server.js - CONFIGURADO PARA LOCALHOST
+// server.js - CONFIGURADO PARA LOCALHOST (VERSÃO COMPLETA)
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -20,60 +20,33 @@ if (isDebug) {
   console.log('📍 PORT:', process.env.PORT);
 }
 
-// Configuração do Prisma
+// Configuração simples do Prisma
 const prisma = new PrismaClient({
   datasources: {
     db: {
       url: process.env.DATABASE_URL,
     },
   },
-  log: isDebug ? ['query', 'info', 'warn', 'error'] : ['error', 'warn'],
+  log: isDebug ? ['info', 'warn', 'error'] : ['error', 'warn'],
 });
 
-// Função de conexão
+// Função de conexão simplificada - SEM TESTE NA INICIALIZAÇÃO
 let isConnected = false;
-async function connectPrisma(retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      if (!isConnected) {
-        console.log(`🔄 Tentativa de conexão ${i + 1}/${retries}...`);
-        await prisma.$connect();
-        
-        // Teste simples para verificar conexão
-        await prisma.$queryRaw`SELECT 1`;
-        
-        isConnected = true;
-        console.log('✅ Prisma conectado com sucesso');
-        return true;
-      }
-      return true;
-    } catch (error) {
-      console.error(`❌ Erro na tentativa ${i + 1}:`, error.message);
-      isConnected = false;
-      
-      if (i === retries - 1) {
-        console.error('🚨 Falha em todas as tentativas de conexão');
-        throw error;
-      }
-      
-      // Aguarda antes da próxima tentativa
-      await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
-    }
-  }
-}
 
-// Middleware para garantir conexão
 async function ensureConnection(req, res, next) {
   try {
+    // Conectar apenas se necessário, sem testes complexos
     if (!isConnected) {
-      await connectPrisma();
+      await prisma.$connect();
+      isConnected = true;
+      console.log('✅ Conectado ao banco de dados');
     }
     next();
   } catch (error) {
-    console.error('❌ Falha na conexão middleware:', error);
+    console.error('❌ Erro de conexão:', error.message);
     res.status(503).json({ 
       success: false, 
-      error: 'Serviço temporariamente indisponível. Tente novamente em alguns minutos.',
+      error: 'Serviço temporariamente indisponível.',
       code: 'DATABASE_CONNECTION_ERROR'
     });
   }
@@ -174,60 +147,98 @@ app.get('/health', (req, res) => {
     status: 'API Online - LOCALHOST',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
-    port: process.env.PORT
+    port: process.env.PORT,
+    database: isConnected ? 'Connected' : 'Not Connected'
   });
 });
 
-// Diagnóstico completo
-app.get('/api/test', async (req, res) => {
+// Diagnóstico simplificado
+app.get('/api/test', ensureConnection, async (req, res) => {
   try {
-    console.log('=== DIAGNÓSTICO LOCALHOST ===');
+    console.log('=== TESTE DE CONEXÃO ===');
     
-    // 1. Verificar variáveis de ambiente
-    const envCheck = {
-      NODE_ENV: process.env.NODE_ENV,
-      hasDATABASE_URL: !!process.env.DATABASE_URL,
-      DATABASE_URL_preview: process.env.DATABASE_URL?.substring(0, 30) + '...',
-      hasJWT_SECRET: !!process.env.JWT_SECRET,
-      PORT: process.env.PORT,
-      VITE_API_URL: process.env.VITE_API_URL
-    };
-    console.log('📋 ENV:', envCheck);
-    
-    // 2. Testar conexão
-    console.log('🔄 Testando conexão...');
-    isConnected = false;
-    await connectPrisma();
-    
-    // 3. Teste de query
-    console.log('🔄 Testando query...');
     const userCount = await prisma.user.count();
-    console.log('✅ Query OK - Usuários:', userCount);
-    
-    // 4. Teste de tempo
-    const rawTest = await prisma.$queryRaw`SELECT NOW() as current_time`;
-    console.log('✅ Raw query OK:', rawTest);
+    console.log('✅ Teste realizado - Usuários:', userCount);
     
     res.json({ 
       success: true, 
-      message: 'API Localhost funcionando!',
+      message: 'API funcionando!',
       data: {
-        environment: envCheck,
         userCount,
-        databaseTime: rawTest,
         connectionStatus: 'OK',
         timestamp: new Date().toISOString()
       }
     });
     
   } catch (error) {
-    console.error('❌ Erro no diagnóstico:', error);
-    
+    console.error('❌ Erro no teste:', error);
     res.status(500).json({ 
       success: false, 
-      error: error.message,
-      errorType: error.constructor.name,
-      details: isDebug ? error.stack : undefined
+      error: error.message
+    });
+  }
+});
+
+// POST /api/create-test-user
+app.post('/api/create-test-user', ensureConnection, async (req, res) => {
+  try {
+    if (process.env.NODE_ENV !== 'development') {
+      return res.status(403).json({
+        success: false,
+        error: 'Disponível apenas em desenvolvimento'
+      });
+    }
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email: 'test@exemplo.com' }
+    });
+    
+    if (existingUser) {
+      return res.json({
+        success: true,
+        message: 'Usuário de teste já existe',
+        data: {
+          email: 'test@exemplo.com',
+          password: '123456'
+        }
+      });
+    }
+
+    const password = '123456';
+    const passwordHash = await bcrypt.hash(password, 12);
+    
+    const user = await prisma.user.create({
+      data: {
+        name: 'Usuário Teste',
+        email: 'test@exemplo.com',
+        phone: '(11) 99999-9999',
+        passwordHash,
+        isAdmin: false,
+        level: 1,
+        balance: 0,
+        onboardingCompleted: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+    });
+
+    console.log('✅ Usuário de teste criado:', user.email);
+
+    res.json({
+      success: true,
+      message: 'Usuário de teste criado com sucesso!',
+      data: {
+        email: 'test@exemplo.com',
+        password: '123456',
+        id: user.id
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao criar usuário de teste:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao criar usuário de teste'
     });
   }
 });
@@ -236,7 +247,7 @@ app.get('/api/test', async (req, res) => {
 // ROTAS DE AUTENTICAÇÃO
 // ============================================
 
-// POST /api/auth/register - Registro de usuário
+// POST /api/auth/register
 app.post('/api/auth/register', ensureConnection, async (req, res) => {
   try {
     const { name, email, phone, password } = req.body;
@@ -281,10 +292,7 @@ app.post('/api/auth/register', ensureConnection, async (req, res) => {
         isAdmin: false,
         level: 1,
         balance: 0,
-        reviewsCount: 0,
-        averageRating: 0,
         onboardingCompleted: false,
-        isActive: true,
         createdAt: new Date(),
         updatedAt: new Date()
       }
@@ -311,7 +319,7 @@ app.post('/api/auth/register', ensureConnection, async (req, res) => {
   }
 });
 
-// POST /api/auth/login - Login de usuário
+// POST /api/auth/login
 app.post('/api/auth/login', ensureConnection, async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -329,12 +337,11 @@ app.post('/api/auth/login', ensureConnection, async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { 
-        email: email.toLowerCase(),
-        isActive: true 
+        email: email.toLowerCase()
       }
     });
 
-    if (!user) {
+    if (!user || user.isSuspended) {
       return res.status(401).json({ 
         success: false, 
         error: 'Email ou senha inválidos' 
@@ -350,7 +357,6 @@ app.post('/api/auth/login', ensureConnection, async (req, res) => {
       });
     }
 
-    // Atualizar último login
     await prisma.user.update({
       where: { id: user.id },
       data: {
@@ -377,17 +383,16 @@ app.post('/api/auth/login', ensureConnection, async (req, res) => {
   }
 });
 
-// GET /api/auth/me - Verificar usuário autenticado
+// GET /api/auth/me
 app.get('/api/auth/me', ensureConnection, authenticateToken, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { 
-        id: req.user.userId,
-        isActive: true 
+        id: req.user.userId
       }
     });
 
-    if (!user) {
+    if (!user || user.isSuspended) {
       return res.status(404).json({ 
         success: false, 
         error: 'Usuário não encontrado' 
@@ -410,7 +415,7 @@ app.get('/api/auth/me', ensureConnection, authenticateToken, async (req, res) =>
 // ROTAS DE LIVROS
 // ============================================
 
-// GET /api/books - Listar livros
+// GET /api/books - Listar todos os livros
 app.get('/api/books', ensureConnection, async (req, res) => {
   try {
     const books = await prisma.book.findMany({
@@ -430,6 +435,10 @@ app.get('/api/books', ensureConnection, async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
+    if (isDebug) {
+      console.log(`📚 Retornando ${books.length} livros da API`);
+    }
+
     res.json({ success: true, data: { books } });
   } catch (error) {
     console.error('❌ Books error:', error);
@@ -440,11 +449,93 @@ app.get('/api/books', ensureConnection, async (req, res) => {
   }
 });
 
+// GET /api/books/:id - Buscar livro específico
+app.get('/api/books/:id', ensureConnection, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (isDebug) {
+      console.log(`📖 Buscando livro com ID: ${id}`);
+    }
+    
+    // Mapear IDs simples para títulos dos livros do banco
+    const bookMapping = {
+      '1': 'A Caixa de Pandora',
+      '2': 'O Príncipe e a Gata', 
+      '3': 'O Banqueiro Anarquista',
+      '4': 'De Quanta Terra um Homem Precisa?',
+      'book-1': 'A Caixa de Pandora',
+      'book-2': 'O Príncipe e a Gata',
+      'book-3': 'O Banqueiro Anarquista', 
+      'book-4': 'De Quanta Terra um Homem Precisa?'
+    };
+    
+    const bookTitle = bookMapping[id];
+    
+    if (!bookTitle) {
+      return res.status(404).json({
+        success: false,
+        error: 'Livro não encontrado'
+      });
+    }
+    
+    const book = await prisma.book.findFirst({
+      where: { 
+        title: bookTitle,
+        active: true 
+      },
+      select: {
+        id: true,
+        title: true,
+        author: true,
+        genre: true,
+        synopsis: true,
+        content: true, // Incluir conteúdo para leitura
+        baseRewardMoney: true,
+        requiredLevel: true,
+        reviewsCount: true,
+        averageRating: true,
+        estimatedReadTime: true,
+        wordCount: true,
+        pageCount: true,
+        createdAt: true
+      }
+    });
+
+    if (!book) {
+      return res.status(404).json({
+        success: false,
+        error: 'Livro não encontrado no banco de dados'
+      });
+    }
+
+    // Converter para formato esperado pelo frontend
+    const bookFormatted = {
+      ...book,
+      id: id, // Usar o ID simples que veio da URL
+      rewardMoney: Math.floor((book.baseRewardMoney || 10000) / 100), // Converter centavos para reais
+      estimatedReadTime: book.estimatedReadTime ? `${Math.ceil(book.estimatedReadTime / 60)} min` : '10 min'
+    };
+
+    if (isDebug) {
+      console.log(`📖 Retornando livro ${id}: ${book.title}`);
+    }
+
+    res.json({ success: true, data: { book: bookFormatted } });
+    
+  } catch (error) {
+    console.error('❌ Book detail error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro ao buscar livro'
+    });
+  }
+});
+
 // ============================================
 // FALLBACK PARA SPA
 // ============================================
 
-// Todas as outras rotas retornam o React app (se dist existir)
 app.get('*', (req, res) => {
   const indexPath = path.join(__dirname, 'dist', 'index.html');
   try {
@@ -460,7 +551,9 @@ app.get('*', (req, res) => {
           'POST /api/auth/register',
           'POST /api/auth/login',
           'GET /api/auth/me',
-          'GET /api/books'
+          'GET /api/books',
+          'GET /api/books/:id',
+          'POST /api/create-test-user'
         ]
       });
     }
@@ -477,24 +570,19 @@ app.get('*', (req, res) => {
 // ============================================
 const PORT = process.env.PORT || 3001;
 
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log('🎯 ====================================');
   console.log(`🚀 SERVIDOR LOCALHOST INICIADO`);
   console.log(`📍 Porta: ${PORT}`);
   console.log(`🌍 Ambiente: ${process.env.NODE_ENV}`);
   console.log(`🔗 Health Check: http://localhost:${PORT}/health`);
   console.log(`🔗 API Test: http://localhost:${PORT}/api/test`);
+  console.log(`🔗 Create Test User: http://localhost:${PORT}/api/create-test-user`);
+  console.log(`🔗 Books: http://localhost:${PORT}/api/books`);
+  console.log(`🔗 Book Detail: http://localhost:${PORT}/api/books/:id`);
   console.log(`🔗 Frontend URL: ${process.env.VITE_API_URL || 'N/A'}`);
   console.log('🎯 ====================================');
-  
-  // Tentativa inicial de conexão
-  try {
-    await connectPrisma();
-    console.log('🎉 Servidor e banco conectados com sucesso!');
-  } catch (error) {
-    console.error('⚠️  Servidor iniciado, mas sem conexão com BD.');
-    console.error('💡 As tentativas de conexão serão feitas nas requisições.');
-  }
+  console.log('🎉 Servidor iniciado! Conexão com BD será feita sob demanda.');
 });
 
 // Graceful shutdown

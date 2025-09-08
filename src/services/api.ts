@@ -1,9 +1,9 @@
-// src/services/api.ts - SOLUÇÃO HÍBRIDA
+// src/services/api.ts - API REAL PARA LIVROS (LOCALHOST)
 import { ApiResponse } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://beta-review-website.onrender.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
-// Mock data para livros
+// Mock data para livros (mantido como fallback)
 const MOCK_BOOKS = [
   {
     id: '1',
@@ -131,33 +131,87 @@ class ApiService {
   }
 
   // ============================================
-  // BOOKS - USA MOCK (SEM API)
+  // BOOKS - AGORA USA API REAL
   // ============================================
 
   async getBooks(): Promise<ApiResponse<{ books: any[] }>> {
-    // Simular delay de rede
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    console.log('📚 Retornando livros mock (sem API)');
-    
-    return {
-      success: true,
-      data: { books: MOCK_BOOKS }
-    };
+    try {
+      console.log('📚 Buscando livros da API real (localhost)...');
+      
+      const response = await fetch(`${API_BASE_URL}/books`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success && result.data?.books) {
+        console.log(`✅ ${result.data.books.length} livros carregados da API`);
+        return result;
+      } else {
+        throw new Error('Formato de resposta inválido da API');
+      }
+      
+    } catch (error) {
+      console.error('❌ Erro ao buscar livros da API:', error);
+      
+      // Fallback para dados mock em caso de erro
+      console.log('📚 Usando dados mock como fallback...');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      return {
+        success: true,
+        data: { books: MOCK_BOOKS }
+      };
+    }
   }
 
   async getBookById(id: string): Promise<ApiResponse<any>> {
-    await new Promise(resolve => setTimeout(resolve, 200));
-    
-    const book = MOCK_BOOKS.find(b => b.id === id);
-    if (!book) {
-      throw new Error('Livro não encontrado');
+    try {
+      console.log(`📖 Buscando livro ${id} da API...`);
+      
+      const response = await fetch(`${API_BASE_URL}/books/${id}`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error('Livro não encontrado');
+        }
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success && result.data?.book) {
+        console.log(`✅ Livro ${id} carregado da API`);
+        return result;
+      } else {
+        throw new Error('Formato de resposta inválido da API');
+      }
+      
+    } catch (error) {
+      console.error(`❌ Erro ao buscar livro ${id}:`, error);
+      
+      // Fallback para dados mock
+      console.log(`📖 Usando dados mock para livro ${id}...`);
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      const book = MOCK_BOOKS.find(b => b.id === id);
+      if (!book) {
+        throw new Error('Livro não encontrado');
+      }
+      
+      return {
+        success: true,
+        data: { book }
+      };
     }
-    
-    return {
-      success: true,
-      data: { book }
-    };
   }
 
   async getBookContent(id: string): Promise<ApiResponse<{ content: string }>> {
