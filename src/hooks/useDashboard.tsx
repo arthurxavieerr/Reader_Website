@@ -1,6 +1,7 @@
-// src/hooks/useDashboard.tsx - VERSÃO CORRIGIDA SÓ COM MOCK
+// src/hooks/useDashboard.tsx - USANDO DADOS REAIS DA API
 import { useState, useEffect } from 'react';
 import { useAuth } from './useAuth';
+import { apiService } from '../services/api';
 
 interface DashboardStats {
   booksRead: number;
@@ -28,7 +29,7 @@ interface DashboardBook {
   requiredLevel?: number;
   baseRewardMoney?: number;
   estimatedReadTime?: number;
-  isInitialBook?: boolean;
+  averageRating?: number;
 }
 
 interface DashboardState {
@@ -40,131 +41,26 @@ interface DashboardState {
   error: string | null;
 }
 
-// Mock data baseado no seed.ts
-const MOCK_STATS: DashboardStats = {
-  booksRead: 0,
-  weeklyEarnings: 0,
-  totalWithdrawn: 0,
-};
-
-const MOCK_PROGRESS: DashboardProgress = {
-  dailyBooks: 0,
-  dailyReviews: 0,
-  dailyEarnings: 0,
-};
-
-// Dados dos livros baseados no seed.ts
-const MOCK_BOOKS: DashboardBook[] = [
-  {
-    id: '1',
-    title: 'A Caixa de Pandora',
-    author: 'Hesíodo',
-    genre: 'Mitologia grega',
-    rewardMoney: 100,
-    reviewsCount: 84288,
-    coverColor: '#895aed',
-    isAvailable: true,
-    estimatedTime: '7 min',
-    synopsis: 'Descubra o conto mitológico de Pandora, que nos revela a origem dos males do mundo e o dom da esperança.',
-    baseRewardMoney: 10000,
-    estimatedReadTime: 420,
-    isInitialBook: true,
-    requiredLevel: 0
-  },
-  {
-    id: '2',
-    title: 'O Príncipe e a Gata',
-    author: 'Charles Perrault',
-    genre: 'Conto de fadas',
-    rewardMoney: 200,
-    reviewsCount: 12947,
-    coverColor: '#dc2626',
-    isAvailable: true,
-    estimatedTime: '7 min',
-    synopsis: 'Era uma vez um rei, pai de três corajosos príncipes, que estava em dúvida sobre qual deles deveria lhe suceder no trono.',
-    baseRewardMoney: 20000,
-    estimatedReadTime: 420,
-    isInitialBook: true,
-    requiredLevel: 0
-  },
-  {
-    id: '3',
-    title: 'O Banqueiro Anarquista',
-    author: 'Fernando Pessoa',
-    genre: 'Ensaio filosófico',
-    rewardMoney: 300,
-    reviewsCount: 11698,
-    coverColor: '#059669',
-    isAvailable: true,
-    estimatedTime: '93 min',
-    synopsis: 'Ensaio filosófico em forma de diálogo, onde um banqueiro se declara anarquista.',
-    baseRewardMoney: 30000,
-    estimatedReadTime: 5580,
-    isInitialBook: true,
-    requiredLevel: 0
-  },
-  {
-    id: '4',
-    title: 'De Quanta Terra um Homem Precisa?',
-    author: 'Liev Tolstói',
-    genre: 'Literatura russa',
-    rewardMoney: 500,
-    reviewsCount: 8754,
-    coverColor: '#f59e0b',
-    isAvailable: true,
-    estimatedTime: '18 min',
-    synopsis: 'Um conto sobre ambição e as verdadeiras necessidades humanas.',
-    baseRewardMoney: 50000,
-    estimatedReadTime: 1100,
-    isInitialBook: true,
-    requiredLevel: 0
-  },
-  {
-    id: '5',
-    title: 'O Último Detetive de Baker Street',
-    author: 'Eduardo Santos',
-    genre: 'Mistério Urbano',
-    rewardMoney: 800,
-    reviewsCount: 5621,
-    coverColor: '#8b5cf6',
-    isAvailable: false,
-    estimatedTime: '14 min',
-    synopsis: 'Mistérios sombrios nas ruas de Londres com um detetive excepcional.',
-    baseRewardMoney: 80000,
-    estimatedReadTime: 840,
-    requiredLevel: 1,
-    isInitialBook: false
-  },
-  {
-    id: '6',
-    title: 'Suspeito Comum',
-    author: 'Maria Silva',
-    genre: 'Thriller psicológico',
-    rewardMoney: 600,
-    reviewsCount: 3245,
-    coverColor: '#dc2626',
-    isAvailable: false,
-    estimatedTime: '12 min',
-    synopsis: 'Um thriller que questiona a natureza da culpa e inocência.',
-    baseRewardMoney: 60000,
-    estimatedReadTime: 720,
-    requiredLevel: 2,
-    isInitialBook: false
-  }
-];
-
 export const useDashboard = () => {
   const { user } = useAuth();
   const [state, setState] = useState<DashboardState>({
-    stats: MOCK_STATS,
-    progress: MOCK_PROGRESS,
+    stats: {
+      booksRead: 0,
+      weeklyEarnings: 0,
+      totalWithdrawn: 0,
+    },
+    progress: {
+      dailyBooks: 0,
+      dailyReviews: 0,
+      dailyEarnings: 0,
+    },
     availableBooks: [],
     lockedBooks: [],
     isLoading: true,
     error: null,
   });
 
-  const loadMockData = async () => {
+  const loadDashboardData = async () => {
     if (!user) {
       setState(prev => ({ ...prev, isLoading: false }));
       return;
@@ -172,40 +68,57 @@ export const useDashboard = () => {
 
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
-    // Simular delay da API
-    await new Promise(resolve => setTimeout(resolve, 500));
-
     try {
-      console.log('📚 Carregando dados mock do dashboard');
+      console.log('📊 Carregando dados do dashboard da API...');
 
-      // Filtrar livros baseado no nível do usuário
-      const userLevel = user?.level || 0;
-      const userPlan = user?.planType || 'free';
+      // Buscar livros da API
+      const booksResponse = await apiService.getBooks();
       
-      // Processar livros mock
-      const processedBooks = MOCK_BOOKS.map(book => ({
-        ...book,
+      if (!booksResponse.success || !booksResponse.data?.books) {
+        throw new Error('Erro ao carregar livros da API');
+      }
+
+      const apiBooks = booksResponse.data.books;
+      console.log(`✅ ${apiBooks.length} livros carregados da API para o dashboard`);
+
+      // Processar livros da API
+      const userLevel = user?.level || 0;
+      const userPlan = user?.planType || 'FREE';
+
+      const processedBooks = apiBooks.map(book => ({
+        id: book.id,
+        title: book.title,
+        author: book.author,
+        genre: book.genre,
+        synopsis: book.synopsis,
         rewardMoney: calculateUserReward(book.baseRewardMoney || 10000, userPlan),
-        reviewsCount: book.reviewsCount || Math.floor(Math.random() * 50000) + 10000
+        reviewsCount: book.reviewsCount || 0,
+        averageRating: book.averageRating || 0,
+        baseRewardMoney: book.baseRewardMoney,
+        requiredLevel: book.requiredLevel || 0,
+        estimatedReadTime: book.estimatedReadTime || 600, // 10 minutos em segundos
+        estimatedTime: formatEstimatedTime(book.estimatedReadTime || 600),
+        coverColor: generateCoverColor(book.genre),
+        isAvailable: (book.requiredLevel || 0) <= userLevel
       }));
 
       // Separar livros disponíveis e bloqueados
-      const availableBooks = processedBooks.filter(book => {
-        if (book.isInitialBook === true) return true;
-        if (book.requiredLevel !== undefined) return book.requiredLevel <= userLevel;
-        return false;
-      });
-      
-      const lockedBooks = processedBooks.filter(book => {
-        if (book.isInitialBook === false && book.requiredLevel !== undefined) {
-          return book.requiredLevel > userLevel;
-        }
-        return false;
-      });
+      const availableBooks = processedBooks.filter(book => book.isAvailable);
+      const lockedBooks = processedBooks.filter(book => !book.isAvailable);
+
+      // Extrair estatísticas do usuário
+      const stats = extractStatsFromUser(user);
+
+      // Progress baseado nas estatísticas atuais (pode ser expandido futuramente)
+      const progress = {
+        dailyBooks: 0, // Pode ser calculado baseado em reading sessions do dia
+        dailyReviews: 0, // Pode ser calculado baseado em reviews do dia
+        dailyEarnings: 0, // Pode ser calculado baseado em earnings do dia
+      };
 
       setState({
-        stats: extractStatsFromUser(user),
-        progress: MOCK_PROGRESS,
+        stats,
+        progress,
         availableBooks,
         lockedBooks,
         isLoading: false,
@@ -213,22 +126,22 @@ export const useDashboard = () => {
       });
 
     } catch (error: any) {
-      console.error('Erro ao carregar dados mock:', error);
+      console.error('❌ Erro ao carregar dados do dashboard:', error);
       setState(prev => ({
         ...prev,
         isLoading: false,
-        error: 'Erro ao carregar dados do dashboard'
+        error: error.message || 'Erro ao carregar dados do dashboard'
       }));
     }
   };
 
-  const calculateUserReward = (baseRewardMoney: number, planType: 'free' | 'premium'): number => {
+  const calculateUserReward = (baseRewardMoney: number, planType: string): number => {
     // baseRewardMoney está em centavos, converter para reais
     const rewardInReais = baseRewardMoney / 100;
     
-    if (planType === 'premium') {
-      // Premium poderia ter multiplicador
-      return rewardInReais * 1.5; // 50% a mais
+    if (planType === 'PREMIUM') {
+      // Premium tem multiplicador de 1.5x
+      return Math.floor(rewardInReais * 1.5);
     }
     
     return rewardInReais;
@@ -242,12 +155,46 @@ export const useDashboard = () => {
     };
   };
 
+  const formatEstimatedTime = (timeInSeconds: number): string => {
+    const minutes = Math.ceil(timeInSeconds / 60);
+    if (minutes < 60) {
+      return `${minutes} min`;
+    } else {
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = minutes % 60;
+      if (remainingMinutes === 0) {
+        return `${hours}h`;
+      }
+      return `${hours}h ${remainingMinutes}min`;
+    }
+  };
+
+  const generateCoverColor = (genre: string): string => {
+    // Gerar cores baseadas no gênero
+    const genreColors: { [key: string]: string } = {
+      'Mitologia grega': '#895aed',
+      'Conto de fadas': '#dc2626', 
+      'Ensaio filosófico': '#059669',
+      'Literatura russa': '#f59e0b',
+      'Mistério Urbano': '#7c3aed',
+      'Thriller psicológico': '#dc2626',
+      'Romance': '#ec4899',
+      'Ficção científica': '#06b6d4',
+      'Terror': '#1f2937',
+      'Fantasia': '#10b981',
+      'Drama': '#6366f1',
+      'Comédia': '#fbbf24',
+    };
+
+    return genreColors[genre] || '#6b7280'; // Cor padrão cinza
+  };
+
   const refetch = () => {
-    loadMockData();
+    loadDashboardData();
   };
 
   useEffect(() => {
-    loadMockData();
+    loadDashboardData();
   }, [user?.id]);
 
   return {

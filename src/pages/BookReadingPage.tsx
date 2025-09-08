@@ -55,44 +55,44 @@ const BookReadingPage: React.FC = () => {
   const [readingStartTime] = useState(Date.now());
 
   // Função para dividir o conteúdo em páginas de ~5000 caracteres
-  const paginateContent = (content: string) => {
+  const paginateContent = (textContent: string) => {
     const maxCharsPerPage = 5000;
-    const pages: string[] = [];
+    const pagesList: string[] = [];
     
     // Se o conteúdo for menor que o limite, criar apenas uma página
-    if (content.length <= maxCharsPerPage) {
-      return [content];
+    if (textContent.length <= maxCharsPerPage) {
+      return [textContent];
     }
 
     let currentIndex = 0;
     
-    while (currentIndex < content.length) {
-      let endIndex = Math.min(currentIndex + maxCharsPerPage, content.length);
+    while (currentIndex < textContent.length) {
+      let endIndex = Math.min(currentIndex + maxCharsPerPage, textContent.length);
       
       // Se não é a última página, tentar quebrar em um ponto melhor
-      if (endIndex < content.length) {
+      if (endIndex < textContent.length) {
         // Procurar por quebra de parágrafo próxima
-        const nearbyBreak = content.lastIndexOf('\n\n', endIndex);
+        const nearbyBreak = textContent.lastIndexOf('\n\n', endIndex);
         if (nearbyBreak > currentIndex + 1000) { // Só usar se a quebra não for muito próxima do início
           endIndex = nearbyBreak + 2; // +2 para incluir as quebras de linha
         } else {
           // Procurar por quebra de frase
-          const sentenceBreak = content.lastIndexOf('. ', endIndex);
+          const sentenceBreak = textContent.lastIndexOf('. ', endIndex);
           if (sentenceBreak > currentIndex + 1000) {
             endIndex = sentenceBreak + 2; // +2 para incluir o ponto e espaço
           }
         }
       }
       
-      const pageContent = content.slice(currentIndex, endIndex).trim();
+      const pageContent = textContent.slice(currentIndex, endIndex).trim();
       if (pageContent) {
-        pages.push(pageContent);
+        pagesList.push(pageContent);
       }
       
       currentIndex = endIndex;
     }
 
-    return pages.length > 0 ? pages : [content];
+    return pagesList.length > 0 ? pagesList : [textContent];
   };
 
   // Timer para controle do tempo mínimo por página
@@ -130,76 +130,62 @@ const BookReadingPage: React.FC = () => {
       try {
         console.log('Buscando dados do livro:', id);
         
-        // Mock data para informações do livro
-        const mockBooks: Record<string, any> = {
-          '1': { 
-            id: '1',
-            title: 'A Caixa de Pandora', 
-            author: 'Hesíodo', 
-            genre: 'Mitologia grega',
-            rewardMoney: 10, // R$ 10,00
-            synopsis: 'Descubra o conto mitológico de Pandora...',
-            reviewsCount: 84288,
-            averageRating: 4.5,
-            estimatedReadTime: '7 min'
-          },
-          '2': { 
-            id: '2',
-            title: 'O Príncipe e a Gata', 
-            author: 'Charles Perrault', 
-            genre: 'Conto de fadas',
-            rewardMoney: 20, // R$ 20,00
-            synopsis: 'Era uma vez um rei...',
-            reviewsCount: 12947,
-            averageRating: 4.3,
-            estimatedReadTime: '8 min'
-          },
-          '3': { 
-            id: '3',
-            title: 'O Banqueiro Anarquista', 
-            author: 'Fernando Pessoa', 
-            genre: 'Ensaio filosófico',
-            rewardMoney: 30, // R$ 30,00
-            synopsis: 'Ensaio filosófico em forma de diálogo...',
-            reviewsCount: 11698,
-            averageRating: 4.7,
-            estimatedReadTime: '93 min'
-          },
-          '4': { 
-            id: '4',
-            title: 'De Quanta Terra um Homem Precisa?', 
-            author: 'Liev Tolstói', 
-            genre: 'Literatura russa',
-            rewardMoney: 50, // R$ 50,00
-            synopsis: 'Um conto sobre ambição...',
-            reviewsCount: 8754,
-            averageRating: 4.6,
-            estimatedReadTime: '18 min'
-          }
+        // Buscar dados da API
+        const token = localStorage.getItem('beta-reader-token');
+        const headers: HeadersInit = {
+          'Content-Type': 'application/json',
         };
-
-        const mockBook = mockBooks[id];
-        if (!mockBook) {
-          throw new Error('Livro não encontrado');
+        
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
         }
 
-        // Carregar conteúdo do arquivo .txt
-        const response = await fetch(`/books/${id}.txt`);
+        const response = await fetch(`http://localhost:3001/api/books/${id}`, {
+          headers
+        });
+
         if (!response.ok) {
+          throw new Error(`Erro ao buscar livro: ${response.status}`);
+        }
+
+        const apiData = await response.json();
+
+        if (!apiData.success || !apiData.data?.book) {
+          throw new Error('Livro não encontrado na API');
+        }
+
+        const apiBook = apiData.data.book;
+        const textFromAPI = apiBook.content || 'Conteúdo não disponível para este livro.';
+        
+        if (!textFromAPI || textFromAPI.trim() === '') {
           throw new Error('Conteúdo do livro não encontrado');
         }
-        
-        const content = await response.text();
 
+        // Configurar dados do livro
+        const processedBookData: Book = {
+          id: apiBook.id,
+          title: apiBook.title,
+          author: apiBook.author,
+          genre: apiBook.genre,
+          content: textFromAPI,
+          rewardMoney: apiBook.rewardMoney || Math.floor((apiBook.baseRewardMoney || 10000) / 100),
+          synopsis: apiBook.synopsis,
+          reviewsCount: apiBook.reviewsCount || 0,
+          averageRating: apiBook.averageRating || 0,
+          estimatedReadTime: apiBook.estimatedReadTime || '10 min'
+        };
+
+        console.log('✅ Livro carregado da API:', processedBookData.title);
+        
         // Configurar dados
-        setBook(mockBook);
-        setBookContent(content);
-        setSessionId(`mock-session-${id}-${Date.now()}`);
+        setBook(processedBookData);
+        setBookContent(textFromAPI);
+        setSessionId(`session-${id}-${Date.now()}`);
 
         // Paginar conteúdo
-        const paginatedContent = paginateContent(content);
-        console.log('Páginas criadas:', paginatedContent.length, 'caracteres por página:', paginatedContent.map((p: string) => p.length));
-        setPages(paginatedContent);
+        const paginatedPages = paginateContent(textFromAPI);
+        console.log('Páginas criadas:', paginatedPages.length, 'caracteres por página:', paginatedPages.map((p: string) => p.length));
+        setPages(paginatedPages);
         
         // Marcar primeira página como lida e iniciar timer
         setReadPages(new Set([0]));
@@ -210,7 +196,7 @@ const BookReadingPage: React.FC = () => {
 
       } catch (err) {
         console.error('Erro ao carregar livro:', err);
-        setError(err instanceof Error ? err.message : 'Erro desconhecido');
+        setError(err instanceof Error ? err.message : 'Erro desconhecido ao carregar livro');
       } finally {
         setLoading(false);
       }
@@ -417,6 +403,7 @@ const BookReadingPage: React.FC = () => {
           <button 
             className={`favorite-button ${isFavorited ? 'favorited' : ''}`}
             onClick={toggleFavorite}
+            title={isFavorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
           >
             <Heart size={18} fill={isFavorited ? 'currentColor' : 'none'} />
           </button>
@@ -469,6 +456,7 @@ const BookReadingPage: React.FC = () => {
               className="font-btn"
               onClick={() => adjustFontSize(false)}
               disabled={fontSize <= 12}
+              title="Diminuir fonte"
             >
               <Minus size={16} />
               <span>A</span>
@@ -478,6 +466,7 @@ const BookReadingPage: React.FC = () => {
               className="font-btn"
               onClick={() => adjustFontSize(true)}
               disabled={fontSize >= 24}
+              title="Aumentar fonte"
             >
               <Plus size={16} />
               <span>A</span>
@@ -647,6 +636,7 @@ const BookReadingPage: React.FC = () => {
                       key={star}
                       className={`star-button-enhanced ${star <= rating ? 'active' : ''}`}
                       onClick={() => handleRatingClick(star)}
+                      title={`Avaliar com ${star} estrela${star > 1 ? 's' : ''}`}
                     >
                       <Star size={32} fill={star <= rating ? 'currentColor' : 'none'} />
                     </button>
