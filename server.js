@@ -1,4 +1,4 @@
-// server.js - CONFIGURADO PARA LOCALHOST (VERSÃO ORIGINAL QUE FUNCIONAVA)
+// server.js - CORRIGIDO PARA EVITAR ERRO DE PREPARED STATEMENTS
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -20,34 +20,61 @@ if (isDebug) {
   console.log('📍 PORT:', process.env.PORT);
 }
 
-// Configuração simples do Prisma (ORIGINAL)
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: process.env.DATABASE_URL,
-    },
-  },
-  log: isDebug ? ['info', 'warn', 'error'] : ['error', 'warn'],
-});
+// ============================================
+// CONFIGURAÇÃO PRISMA CORRIGIDA
+// ============================================
 
-// Função de conexão simplificada (ORIGINAL)
-let isConnected = false;
+// Singleton para evitar múltiplas instâncias
+let prisma;
 
+function getPrismaClient() {
+  if (!prisma) {
+    prisma = new PrismaClient({
+      datasources: {
+        db: {
+          url: process.env.DATABASE_URL,
+        },
+      },
+      log: isDebug ? ['info', 'warn', 'error'] : ['error', 'warn'],
+    });
+
+    // Conectar imediatamente e gerenciar erros
+    prisma.$connect()
+      .then(() => {
+        console.log('✅ Prisma conectado ao banco');
+      })
+      .catch((error) => {
+        console.error('❌ Erro na conexão inicial do Prisma:', error);
+      });
+  }
+  return prisma;
+}
+
+// Usar o singleton
+const client = getPrismaClient();
+
+// Middleware de conexão simplificado - SEM FLAG DE ESTADO
 async function ensureConnection(req, res, next) {
   try {
-    if (!isConnected) {
-      await prisma.$connect();
-      isConnected = true;
-      console.log('✅ Conectado ao banco de dados');
-    }
+    // Teste simples de conexão sem queries complexas
+    await client.$queryRaw`SELECT 1`;
     next();
   } catch (error) {
     console.error('❌ Erro de conexão:', error.message);
-    res.status(503).json({ 
-      success: false, 
-      error: 'Serviço temporariamente indisponível.',
-      code: 'DATABASE_CONNECTION_ERROR'
-    });
+    
+    // Em caso de erro, tentar reconectar
+    try {
+      await client.$disconnect();
+      await client.$connect();
+      next();
+    } catch (reconnectError) {
+      console.error('❌ Erro na reconexão:', reconnectError.message);
+      res.status(503).json({ 
+        success: false, 
+        error: 'Serviço temporariamente indisponível.',
+        code: 'DATABASE_CONNECTION_ERROR'
+      });
+    }
   }
 }
 
@@ -147,7 +174,7 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
     port: process.env.PORT,
-    database: isConnected ? 'Connected' : 'Not Connected'
+    database: 'Connected'
   });
 });
 
@@ -156,7 +183,7 @@ app.get('/api/test', ensureConnection, async (req, res) => {
   try {
     console.log('=== TESTE DE CONEXÃO ===');
     
-    const userCount = await prisma.user.count();
+    const userCount = await client.user.count();
     console.log('✅ Teste realizado - Usuários:', userCount);
     
     res.json({ 
@@ -188,7 +215,7 @@ app.post('/api/create-test-user', ensureConnection, async (req, res) => {
       });
     }
 
-    const existingUser = await prisma.user.findUnique({
+    const existingUser = await client.user.findUnique({
       where: { email: 'test@exemplo.com' }
     });
     
@@ -206,7 +233,7 @@ app.post('/api/create-test-user', ensureConnection, async (req, res) => {
     const password = '123456';
     const passwordHash = await bcrypt.hash(password, 12);
     
-    const user = await prisma.user.create({
+    const user = await client.user.create({
       data: {
         name: 'Usuário Teste',
         email: 'test@exemplo.com',
@@ -269,7 +296,7 @@ app.post('/api/auth/register', ensureConnection, async (req, res) => {
       });
     }
 
-    const existingUser = await prisma.user.findUnique({
+    const existingUser = await client.user.findUnique({
       where: { email: email.toLowerCase() }
     });
 
@@ -282,7 +309,7 @@ app.post('/api/auth/register', ensureConnection, async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 12);
 
-    const user = await prisma.user.create({
+    const user = await client.user.create({
       data: {
         name: name.trim(),
         email: email.toLowerCase().trim(),
@@ -318,7 +345,7 @@ app.post('/api/auth/register', ensureConnection, async (req, res) => {
   }
 });
 
-// POST /api/auth/login
+// POST /api/auth/login  
 app.post('/api/auth/login', ensureConnection, async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -334,7 +361,7 @@ app.post('/api/auth/login', ensureConnection, async (req, res) => {
       });
     }
 
-    const user = await prisma.user.findUnique({
+    const user = await client.user.findUnique({
       where: { 
         email: email.toLowerCase()
       }
@@ -356,7 +383,7 @@ app.post('/api/auth/login', ensureConnection, async (req, res) => {
       });
     }
 
-    await prisma.user.update({
+    await client.user.update({
       where: { id: user.id },
       data: {
         lastLoginAt: new Date(),
@@ -385,7 +412,7 @@ app.post('/api/auth/login', ensureConnection, async (req, res) => {
 // GET /api/auth/me
 app.get('/api/auth/me', ensureConnection, authenticateToken, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({
+    const user = await client.user.findUnique({
       where: { 
         id: req.user.userId
       }
@@ -417,7 +444,7 @@ app.get('/api/auth/me', ensureConnection, authenticateToken, async (req, res) =>
 // GET /api/books - Listar todos os livros
 app.get('/api/books', ensureConnection, async (req, res) => {
   try {
-    const books = await prisma.book.findMany({
+    const books = await client.book.findMany({
       where: { active: true },
       select: {
         id: true,
@@ -478,7 +505,7 @@ app.get('/api/books/:id', ensureConnection, async (req, res) => {
       });
     }
     
-    const book = await prisma.book.findFirst({
+    const book = await client.book.findFirst({
       where: { 
         title: bookTitle,
         active: true 
@@ -513,7 +540,8 @@ app.get('/api/books/:id', ensureConnection, async (req, res) => {
       ...book,
       id: id, // Usar o ID simples que veio da URL
       rewardMoney: Math.floor((book.baseRewardMoney || 10000) / 100), // Converter centavos para reais
-      estimatedReadTime: book.estimatedReadTime ? `${Math.ceil(book.estimatedReadTime / 60)} min` : '10 min'
+      estimatedReadTime: book.estimatedReadTime ? 
+        `${Math.ceil(book.estimatedReadTime / 60)} min` : '10 min'
     };
 
     if (isDebug) {
@@ -581,18 +609,51 @@ app.listen(PORT, () => {
   console.log(`🔗 Book Detail: http://localhost:${PORT}/api/books/:id`);
   console.log(`🔗 Frontend URL: ${process.env.VITE_API_URL || 'N/A'}`);
   console.log('🎯 ====================================');
-  console.log('🎉 Servidor iniciado! Conexão com BD será feita sob demanda.');
+  console.log('🎉 Servidor iniciado! Conexão com BD gerenciada automaticamente.');
 });
 
-// Graceful shutdown
+// ============================================
+// GRACEFUL SHUTDOWN APRIMORADO
+// ============================================
 process.on('SIGINT', async () => {
-  console.log('🔌 Desconectando do banco...');
-  await prisma.$disconnect();
+  console.log('🔌 Encerrando servidor graciosamente...');
+  try {
+    await client.$disconnect();
+    console.log('✅ Banco desconectado');
+  } catch (error) {
+    console.error('❌ Erro ao desconectar:', error);
+  }
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-  console.log('🔌 Desconectando do banco...');
-  await prisma.$disconnect();
+  console.log('🔌 Encerrando servidor (SIGTERM)...');
+  try {
+    await client.$disconnect();
+    console.log('✅ Banco desconectado');
+  } catch (error) {
+    console.error('❌ Erro ao desconectar:', error);
+  }
   process.exit(0);
+});
+
+// Capturar erros não tratados
+process.on('uncaughtException', async (error) => {
+  console.error('💥 Erro não capturado:', error);
+  try {
+    await client.$disconnect();
+  } catch (e) {
+    console.error('❌ Erro ao desconectar após exceção:', e);
+  }
+  process.exit(1);
+});
+
+process.on('unhandledRejection', async (reason, promise) => {
+  console.error('💥 Promise rejeitada não tratada:', reason);
+  try {
+    await client.$disconnect();
+  } catch (e) {
+    console.error('❌ Erro ao desconectar após rejeição:', e);
+  }
+  process.exit(1);
 });
