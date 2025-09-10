@@ -1,4 +1,4 @@
-// server.js - VERSÃO COMPLETA COM SISTEMA DE PAGAMENTOS
+// server.js - VERSÃO COMPLETA COM SISTEMA DE PAGAMENTOS NIVUSPAY
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -6,7 +6,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const { PrismaClient } = require('@prisma/client');
-const nivusPayService = require('./src/services/nivusPayService');
 
 // Configuração do Express
 const app = express();
@@ -28,6 +27,118 @@ function getPrismaClient() {
 }
 
 const client = getPrismaClient();
+
+// Configurações da Nivuspay
+const NIVUSPAY_CONFIG = {
+  BASE_URL: 'https://pay.nivuspay.com.br/api/v1',
+  PUBLIC_KEY: process.env.NIVUSPAY_PUBLIC_KEY || '0b22c6ef-abc2-4ad9-b313-a6e6fac4965d',
+  SECRET_KEY: process.env.NIVUSPAY_SECRET_KEY || '58466d2b-7365-498f-9038-01fe2f537d1a'
+};
+
+// Função para fazer autenticação com a Nivuspay
+async function nivusPayAuth() {
+  try {
+    const response = await fetch(`${NIVUSPAY_CONFIG.BASE_URL}/auth.apiKeySeller`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        apiKey: NIVUSPAY_CONFIG.SECRET_KEY
+      })
+    });
+
+    const data = await response.json();
+    
+    if (!data.success) {
+      throw new Error('Falha na autenticação Nivuspay: ' + (data.message || 'Erro desconhecido'));
+    }
+
+    return data.token;
+  } catch (error) {
+    console.error('❌ Nivuspay Auth Error:', error);
+    throw error;
+  }
+}
+
+// Função para criar transação PIX na Nivuspay
+async function createNivusPayPixTransaction(amount, description, userId) {
+  try {
+    const token = await nivusPayAuth();
+    
+    // Gerar ID único para a transação
+    const customId = `deposit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const response = await fetch(`${NIVUSPAY_CONFIG.BASE_URL}/transaction.purchase`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        customId: customId,
+        amount: amount, // Valor em centavos
+        currency: 'BRL',
+        description: description,
+        paymentMethod: 'PIX',
+        customer: {
+          name: 'Cliente',
+          email: 'cliente@example.com',
+          document: '00000000000'
+        },
+        webhook: {
+          url: `${process.env.APP_URL || 'http://localhost:3001'}/api/webhooks/nivuspay`,
+          events: ['payment.approved', 'payment.rejected', 'payment.cancelled']
+        },
+        expirationTime: 900 // 15 minutos
+      })
+    });
+
+    const data = await response.json();
+    
+    if (!data.success) {
+      throw new Error('Falha ao criar transação: ' + (data.message || 'Erro desconhecido'));
+    }
+
+    return {
+      transactionId: data.data.id,
+      customId: customId,
+      qrCode: data.data.payment?.pixQrCode || data.data.qrCode,
+      qrCodeBase64: data.data.payment?.pixQrCodeBase64 || `data:image/png;base64,${data.data.qrCode}`,
+      pixCopiaECola: data.data.payment?.pixCopiaECola || data.data.qrCodeText,
+      amount: amount,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() // 15 minutos
+    };
+  } catch (error) {
+    console.error('❌ Nivuspay Transaction Error:', error);
+    throw error;
+  }
+}
+
+// Função para verificar status do pagamento na Nivuspay
+async function checkNivusPayPaymentStatus(transactionId) {
+  try {
+    const token = await nivusPayAuth();
+    
+    const response = await fetch(`${NIVUSPAY_CONFIG.BASE_URL}/transaction.getPayment?id=${transactionId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    const data = await response.json();
+    
+    if (!data.success) {
+      throw new Error('Falha ao consultar status: ' + (data.message || 'Erro desconhecido'));
+    }
+
+    return data.data.status; // 'pending', 'approved', 'rejected', 'cancelled'
+  } catch (error) {
+    console.error('❌ Nivuspay Status Check Error:', error);
+    throw error;
+  }
+}
 
 // Middleware de conexão
 async function ensureConnection(req, res, next) {
@@ -147,7 +258,7 @@ app.get('/api/test', ensureConnection, async (req, res) => {
 });
 
 // ============================================
-// ROTAS DE AUTENTICAÇÃO (MANTIDAS)
+// ROTAS DE AUTENTICAÇÃO
 // ============================================
 app.post('/api/auth/register', ensureConnection, async (req, res) => {
   try {
@@ -255,7 +366,7 @@ app.get('/api/auth/me', ensureConnection, authenticateToken, async (req, res) =>
 });
 
 // ============================================
-// ROTAS DE LIVROS (MANTIDAS)
+// ROTAS DE LIVROS
 // ============================================
 app.get('/api/books', ensureConnection, async (req, res) => {
   try {
@@ -332,12 +443,12 @@ app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (re
     const { amount } = req.body; // valor em centavos
     const userId = req.user.userId;
 
-    if (!amount || amount < 100) { // mínimo R$ 1,00
-      return res.status(400).json({ success: false, error: 'Valor mínimo para depósito é R$ 1,00' });
-    }
-
-    if (amount > 100000) { // máximo R$ 1.000,00
-      return res.status(400).json({ success: false, error: 'Valor máximo para depósito é R$ 1.000,00' });
+    // Validar valores específicos: R$ 19,90 ou R$ 39,90
+    if (amount !== 1990 && amount !== 3990) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Apenas os valores R$ 19,90 (taxa de saque) ou R$ 39,90 (plano premium) são permitidos' 
+      });
     }
 
     const user = await client.user.findUnique({ where: { id: userId } });
@@ -345,50 +456,46 @@ app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (re
       return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
     }
 
-    // Criar transação no banco
+    // Verificar se há depósito pendente
+    const pendingDeposit = await client.transaction.findFirst({
+      where: {
+        userId,
+        type: 'DEPOSIT',
+        status: 'PENDING'
+      }
+    });
+
+    if (pendingDeposit) {
+      return res.status(400).json({
+        success: false,
+        error: 'Você já possui um depósito pendente'
+      });
+    }
+
+    // Determinar o tipo de depósito
+    const depositType = amount === 1990 ? 'Taxa de Saque' : 'Plano Premium';
+    const description = `${depositType} - ${user.name || 'Cliente'}`;
+
+    // Criar transação PIX na Nivuspay
+    const nivusPayData = await createNivusPayPixTransaction(amount, description, userId);
+
+    // Salvar transação no banco
     const transaction = await client.transaction.create({
       data: {
         userId,
         type: 'DEPOSIT',
         status: 'PENDING',
         amount,
-        currency: 'BRL'
-      }
-    });
-
-    // Criar pagamento no NivusPay
-    const paymentResult = await nivusPayService.createPixPayment({
-      amount,
-      userId,
-      transactionId: transaction.id,
-      customerName: user.name,
-      customerEmail: user.email,
-      customerPhone: user.phone,
-      customerDocument: user.phone, // Ajustar conforme necessário
-      description: `Depósito de R$ ${(amount / 100).toFixed(2)}`
-    });
-
-    if (!paymentResult.success) {
-      // Marcar transação como falhou
-      await client.transaction.update({
-        where: { id: transaction.id },
-        data: { status: 'FAILED' }
-      });
-
-      return res.status(400).json({
-        success: false,
-        error: 'Erro ao criar pagamento: ' + paymentResult.error
-      });
-    }
-
-    // Atualizar transação com dados do NivusPay
-    await client.transaction.update({
-      where: { id: transaction.id },
-      data: {
-        nivusPayId: paymentResult.data.id,
-        pixQrCode: paymentResult.data.qrCode,
-        pixTxId: paymentResult.data.qrCodeText,
-        nivusPayResponse: paymentResult.data
+        currency: 'BRL',
+        nivusPayTransactionId: nivusPayData.transactionId,
+        nivusPayCustomId: nivusPayData.customId,
+        pixData: {
+          qrCode: nivusPayData.qrCode,
+          qrCodeBase64: nivusPayData.qrCodeBase64,
+          pixCopiaECola: nivusPayData.pixCopiaECola,
+          expiresAt: nivusPayData.expiresAt,
+          depositType: depositType
+        }
       }
     });
 
@@ -396,56 +503,94 @@ app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (re
       success: true,
       data: {
         transactionId: transaction.id,
-        qrCode: paymentResult.data.qrCode,
-        qrCodeText: paymentResult.data.qrCodeText,
-        amount,
-        expiresAt: paymentResult.data.expiresAt,
-        pixKey: paymentResult.data.pixKey
+        qrCode: nivusPayData.qrCode,
+        qrCodeBase64: nivusPayData.qrCodeBase64,
+        pixCopiaECola: nivusPayData.pixCopiaECola,
+        amount: amount,
+        expiresAt: nivusPayData.expiresAt,
+        status: 'PENDING'
       }
     });
 
   } catch (error) {
-    console.error('❌ Deposit error:', error);
-    res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+    console.error('❌ Deposit creation error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro interno do servidor: ' + error.message 
+    });
   }
 });
 
-// GET /api/payments/deposit/:id - Consultar status do depósito
-app.get('/api/payments/deposit/:id', ensureConnection, authenticateToken, async (req, res) => {
+// GET /api/payments/deposit/:id/status - Verificar status do depósito
+app.get('/api/payments/deposit/:id/status', ensureConnection, authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.userId;
 
+    // Buscar transação no banco
     const transaction = await client.transaction.findFirst({
-      where: { id, userId, type: 'DEPOSIT' }
+      where: { 
+        id, 
+        userId, 
+        type: 'DEPOSIT' 
+      }
     });
 
     if (!transaction) {
-      return res.status(404).json({ success: false, error: 'Transação não encontrada' });
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Transação não encontrada' 
+      });
     }
 
-    // Consultar status no NivusPay se necessário
-    if (transaction.nivusPayId && transaction.status === 'PENDING') {
-      const statusResult = await nivusPayService.getPaymentStatus(transaction.nivusPayId);
-      
-      if (statusResult.success) {
-        const nivusStatus = statusResult.data.status;
-        let newStatus = transaction.status;
+    // Se já está processada, retornar status atual
+    if (transaction.status !== 'PENDING') {
+      return res.json({
+        success: true,
+        data: {
+          id: transaction.id,
+          status: transaction.status,
+          amount: transaction.amount,
+          createdAt: transaction.createdAt,
+          processedAt: transaction.processedAt
+        }
+      });
+    }
 
-        // Mapear status do NivusPay para nosso sistema
-        if (nivusStatus === 'paid' || nivusStatus === 'completed') {
+    // Verificar status na Nivuspay
+    let nivusStatus = 'pending';
+    let newStatus = transaction.status;
+
+    if (transaction.nivusPayTransactionId) {
+      try {
+        nivusStatus = await checkNivusPayPaymentStatus(transaction.nivusPayTransactionId);
+        
+        // Mapear status da Nivuspay para nosso sistema
+        if (nivusStatus === 'approved') {
           newStatus = 'COMPLETED';
           
-          // Adicionar valor ao saldo do usuário
-          await client.user.update({
-            where: { id: userId },
-            data: { balance: { increment: transaction.amount } }
-          });
-        } else if (nivusStatus === 'failed' || nivusStatus === 'cancelled') {
+          // Processar pagamento baseado no valor
+          if (transaction.amount === 1990) {
+            // Taxa de saque - adicionar ao saldo
+            await client.user.update({
+              where: { id: userId },
+              data: { balance: { increment: transaction.amount } }
+            });
+          } else if (transaction.amount === 3990) {
+            // Plano premium - upgradar usuário
+            await client.user.update({
+              where: { id: userId },
+              data: { 
+                planType: 'PREMIUM',
+                balance: { increment: transaction.amount }
+              }
+            });
+          }
+        } else if (nivusStatus === 'rejected' || nivusStatus === 'cancelled') {
           newStatus = 'FAILED';
         }
 
-        // Atualizar status da transação
+        // Atualizar status da transação se mudou
         if (newStatus !== transaction.status) {
           await client.transaction.update({
             where: { id: transaction.id },
@@ -455,8 +600,10 @@ app.get('/api/payments/deposit/:id', ensureConnection, authenticateToken, async 
               processedAt: new Date()
             }
           });
-          transaction.status = newStatus;
         }
+      } catch (statusError) {
+        console.error('❌ Error checking Nivuspay status:', statusError);
+        // Continue sem falhar a requisição
       }
     }
 
@@ -464,16 +611,67 @@ app.get('/api/payments/deposit/:id', ensureConnection, authenticateToken, async 
       success: true,
       data: {
         id: transaction.id,
-        status: transaction.status,
+        status: newStatus,
         amount: transaction.amount,
         createdAt: transaction.createdAt,
-        processedAt: transaction.processedAt
+        processedAt: newStatus !== 'PENDING' ? new Date() : null
       }
     });
 
   } catch (error) {
     console.error('❌ Deposit status error:', error);
-    res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro interno do servidor' 
+    });
+  }
+});
+
+// GET /api/payments/deposits - Listar depósitos do usuário
+app.get('/api/payments/deposits', ensureConnection, authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { page = 1, limit = 10 } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [deposits, total] = await Promise.all([
+      client.transaction.findMany({
+        where: { userId, type: 'DEPOSIT' },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: parseInt(limit),
+        select: {
+          id: true,
+          amount: true,
+          status: true,
+          nivusPayStatus: true,
+          pixData: true,
+          createdAt: true,
+          processedAt: true
+        }
+      }),
+      client.transaction.count({
+        where: { userId, type: 'DEPOSIT' }
+      })
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        deposits,
+        total,
+        page: parseInt(page),
+        totalPages: Math.ceil(total / parseInt(limit))
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ List deposits error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro interno do servidor' 
+    });
   }
 });
 
@@ -497,6 +695,16 @@ app.post('/api/payments/withdrawal', ensureConnection, authenticateToken, async 
     const user = await client.user.findUnique({ where: { id: userId } });
     if (!user) {
       return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
+    }
+
+    // Verificar se usuário é premium ou se precisa pagar taxa
+    if (user.planType !== 'PREMIUM') {
+      return res.status(400).json({
+        success: false,
+        error: 'Para realizar saques, você precisa ser Premium ou pagar a taxa de R$ 19,90',
+        requiresPayment: true,
+        feeAmount: 1990
+      });
     }
 
     // Verificar limites baseados no plano
@@ -622,103 +830,98 @@ app.get('/api/payments/withdrawals', ensureConnection, authenticateToken, async 
 });
 
 // ============================================
-// ROTAS DE PAGAMENTO - PLANOS
+// WEBHOOK NIVUSPAY
 // ============================================
-
-// POST /api/payments/plan - Comprar plano premium
-app.post('/api/payments/plan', ensureConnection, authenticateToken, async (req, res) => {
+app.post('/api/webhooks/nivuspay', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
-    const { planType } = req.body;
-    const userId = req.user.userId;
+    const payload = JSON.parse(req.body.toString());
+    
+    console.log('📥 Nivuspay Webhook received:', payload);
 
-    if (planType !== 'PREMIUM') {
-      return res.status(400).json({ success: false, error: 'Tipo de plano inválido' });
+    // Validar payload básico
+    if (!payload.data || !payload.data.customId) {
+      console.log('❌ Invalid webhook payload');
+      return res.status(400).json({ error: 'Invalid payload' });
     }
 
-    const user = await client.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
-    }
+    const { customId, status, id: nivusPayTransactionId } = payload.data;
 
-    if (user.planType === 'PREMIUM') {
-      return res.status(400).json({ success: false, error: 'Usuário já possui plano premium' });
-    }
-
-    // Verificar se há compra pendente
-    const pendingPurchase = await client.planPurchase.findFirst({
-      where: {
-        userId,
-        status: { in: ['PENDING', 'PROCESSING'] }
-      }
+    // Buscar transação pelo customId
+    const transaction = await client.transaction.findFirst({
+      where: { 
+        nivusPayCustomId: customId,
+        type: 'DEPOSIT'
+      },
+      include: { user: true }
     });
 
-    if (pendingPurchase) {
-      return res.status(400).json({
-        success: false,
-        error: 'Você já possui uma compra de plano pendente'
-      });
+    if (!transaction) {
+      console.log('❌ Transaction not found for customId:', customId);
+      return res.status(404).json({ error: 'Transaction not found' });
     }
 
-    const amount = 2990; // R$ 29,90
+    // Verificar se já foi processada
+    if (transaction.status !== 'PENDING') {
+      console.log('✅ Transaction already processed:', transaction.id);
+      return res.json({ success: true, message: 'Already processed' });
+    }
 
-    // Criar compra de plano
-    const planPurchase = await client.planPurchase.create({
+    let newStatus = 'PENDING';
+    let shouldUpdateUser = false;
+
+    // Mapear status da Nivuspay
+    switch (status) {
+      case 'approved':
+        newStatus = 'COMPLETED';
+        shouldUpdateUser = true;
+        break;
+      case 'rejected':
+      case 'cancelled':
+        newStatus = 'FAILED';
+        break;
+      default:
+        newStatus = 'PENDING';
+    }
+
+    // Atualizar transação
+    await client.transaction.update({
+      where: { id: transaction.id },
       data: {
-        userId,
-        planType,
-        amount,
-        status: 'PENDING'
+        status: newStatus,
+        nivusPayStatus: status,
+        processedAt: new Date()
       }
     });
 
-    // Criar pagamento no NivusPay
-    const paymentResult = await nivusPayService.createPlanPayment({
-      planType,
-      userId,
-      planPurchaseId: planPurchase.id,
-      customerName: user.name,
-      customerEmail: user.email,
-      customerPhone: user.phone,
-      customerDocument: user.phone // Ajustar conforme necessário
-    });
-
-    if (!paymentResult.success) {
-      await client.planPurchase.update({
-        where: { id: planPurchase.id },
-        data: { status: 'FAILED' }
-      });
-
-      return res.status(400).json({
-        success: false,
-        error: 'Erro ao criar pagamento: ' + paymentResult.error
-      });
+    // Processar pagamento se aprovado
+    if (shouldUpdateUser) {
+      if (transaction.amount === 1990) {
+        // Taxa de saque - adicionar ao saldo
+        await client.user.update({
+          where: { id: transaction.userId },
+          data: { 
+            balance: { increment: transaction.amount }
+          }
+        });
+        console.log(`✅ Taxa de saque paga: R$ ${(transaction.amount / 100).toFixed(2)} for user ${transaction.user.email}`);
+      } else if (transaction.amount === 3990) {
+        // Plano premium - upgradar usuário e adicionar saldo
+        await client.user.update({
+          where: { id: transaction.userId },
+          data: { 
+            planType: 'PREMIUM',
+            balance: { increment: transaction.amount }
+          }
+        });
+        console.log(`✅ Plano Premium ativado: R$ ${(transaction.amount / 100).toFixed(2)} for user ${transaction.user.email}`);
+      }
     }
 
-    // Atualizar compra com dados do NivusPay
-    await client.planPurchase.update({
-      where: { id: planPurchase.id },
-      data: {
-        nivusPayId: paymentResult.data.id,
-        pixQrCode: paymentResult.data.qrCode,
-        nivusPayResponse: paymentResult.data
-      }
-    });
-
-    res.json({
-      success: true,
-      data: {
-        purchaseId: planPurchase.id,
-        qrCode: paymentResult.data.qrCode,
-        qrCodeText: paymentResult.data.qrCodeText,
-        amount,
-        expiresAt: paymentResult.data.expiresAt,
-        message: 'Após o pagamento, o plano será ativado manualmente pelo administrador.'
-      }
-    });
+    res.json({ success: true });
 
   } catch (error) {
-    console.error('❌ Plan purchase error:', error);
-    res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+    console.error('❌ Nivuspay webhook error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -829,19 +1032,19 @@ app.patch('/api/admin/withdrawals/:id', ensureConnection, authenticateToken, req
   }
 });
 
-// GET /api/admin/plan-purchases - Listar compras de plano para admin
-app.get('/api/admin/plan-purchases', ensureConnection, authenticateToken, requireAdmin, async (req, res) => {
+// GET /api/admin/deposits - Listar todos os depósitos para admin
+app.get('/api/admin/deposits', ensureConnection, authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 20, status = 'all' } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const whereCondition = {};
+    const whereCondition = { type: 'DEPOSIT' };
     if (status !== 'all') {
       whereCondition.status = status.toUpperCase();
     }
 
-    const [purchases, total] = await Promise.all([
-      client.planPurchase.findMany({
+    const [deposits, total] = await Promise.all([
+      client.transaction.findMany({
         where: whereCondition,
         include: {
           user: {
@@ -852,13 +1055,13 @@ app.get('/api/admin/plan-purchases', ensureConnection, authenticateToken, requir
         skip,
         take: parseInt(limit)
       }),
-      client.planPurchase.count({ where: whereCondition })
+      client.transaction.count({ where: whereCondition })
     ]);
 
     res.json({
       success: true,
       data: {
-        purchases,
+        deposits,
         total,
         page: parseInt(page),
         totalPages: Math.ceil(total / parseInt(limit))
@@ -866,141 +1069,7 @@ app.get('/api/admin/plan-purchases', ensureConnection, authenticateToken, requir
     });
 
   } catch (error) {
-    console.error('❌ Admin plan purchases error:', error);
-    res.status(500).json({ success: false, error: 'Erro interno do servidor' });
-  }
-});
-
-// PATCH /api/admin/plan-purchases/:id - Ativar plano manualmente
-app.patch('/api/admin/plan-purchases/:id', ensureConnection, authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { action, notes } = req.body; // action: 'activate' | 'reject'
-    const adminId = req.user.userId;
-
-    if (!['activate', 'reject'].includes(action)) {
-      return res.status(400).json({ success: false, error: 'Ação inválida' });
-    }
-
-    const purchase = await client.planPurchase.findFirst({
-      where: { id },
-      include: { user: true }
-    });
-
-    if (!purchase) {
-      return res.status(404).json({ success: false, error: 'Compra não encontrada' });
-    }
-
-    if (purchase.status !== 'PENDING') {
-      return res.status(400).json({ success: false, error: 'Compra já foi processada' });
-    }
-
-    let newStatus;
-    if (action === 'activate') {
-      newStatus = 'COMPLETED';
-      
-      // Ativar plano premium no usuário
-      await client.user.update({
-        where: { id: purchase.userId },
-        data: { planType: purchase.planType }
-      });
-    } else {
-      newStatus = 'REJECTED';
-    }
-
-    await client.planPurchase.update({
-      where: { id },
-      data: {
-        status: newStatus,
-        adminNotes: notes,
-        activatedBy: adminId,
-        activatedAt: new Date()
-      }
-    });
-
-    res.json({
-      success: true,
-      data: {
-        purchaseId: id,
-        status: newStatus,
-        message: action === 'activate' ? 'Plano ativado com sucesso' : 'Compra rejeitada'
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Activate plan error:', error);
-    res.status(500).json({ success: false, error: 'Erro interno do servidor' });
-  }
-});
-
-// ============================================
-// WEBHOOK NIVUSPAY
-// ============================================
-app.post('/api/webhooks/nivuspay', express.raw({ type: 'application/json' }), async (req, res) => {
-  try {
-    const signature = req.headers['x-nivuspay-signature'];
-    const payload = req.body.toString();
-
-    // Validar webhook
-    if (!nivusPayService.validateWebhook(payload, signature)) {
-      return res.status(401).json({ success: false, error: 'Webhook inválido' });
-    }
-
-    // Processar webhook
-    const webhookResult = nivusPayService.processWebhook(payload);
-    if (!webhookResult.success) {
-      return res.status(400).json({ success: false, error: 'Erro ao processar webhook' });
-    }
-
-    const { eventType, paymentId, status, metadata } = webhookResult.data;
-
-    console.log(`📞 Webhook NivusPay: ${eventType} - ${paymentId} - ${status}`);
-
-    // Processar evento baseado no tipo
-    if (eventType === 'payment.status_changed' && status === 'paid') {
-      
-      if (metadata.type === 'deposit') {
-        // Processar depósito
-        const transaction = await client.transaction.findFirst({
-          where: { nivusPayId: paymentId, type: 'DEPOSIT' }
-        });
-
-        if (transaction && transaction.status === 'PENDING') {
-          await client.transaction.update({
-            where: { id: transaction.id },
-            data: { status: 'COMPLETED', processedAt: new Date() }
-          });
-
-          await client.user.update({
-            where: { id: transaction.userId },
-            data: { balance: { increment: transaction.amount } }
-          });
-
-          console.log(`✅ Depósito confirmado: ${transaction.id}`);
-        }
-      }
-      
-      else if (metadata.type === 'plan_purchase') {
-        // Marcar compra de plano como paga (ainda precisa ativação manual)
-        const purchase = await client.planPurchase.findFirst({
-          where: { nivusPayId: paymentId }
-        });
-
-        if (purchase && purchase.status === 'PENDING') {
-          await client.planPurchase.update({
-            where: { id: purchase.id },
-            data: { status: 'PROCESSING' } // Aguardando ativação manual
-          });
-
-          console.log(`✅ Pagamento de plano confirmado: ${purchase.id}`);
-        }
-      }
-    }
-
-    res.json({ success: true, message: 'Webhook processado' });
-
-  } catch (error) {
-    console.error('❌ Webhook error:', error);
+    console.error('❌ Admin deposits error:', error);
     res.status(500).json({ success: false, error: 'Erro interno do servidor' });
   }
 });
@@ -1021,11 +1090,11 @@ app.get('*', (req, res) => {
           'GET /health', 'GET /api/test',
           'POST /api/auth/register', 'POST /api/auth/login', 'GET /api/auth/me',
           'GET /api/books', 'GET /api/books/:id',
-          'POST /api/payments/deposit', 'GET /api/payments/deposit/:id',
+          'POST /api/payments/deposit', 'GET /api/payments/deposit/:id/status',
+          'GET /api/payments/deposits',
           'POST /api/payments/withdrawal', 'GET /api/payments/withdrawals',
-          'POST /api/payments/plan',
           'GET /api/admin/withdrawals', 'PATCH /api/admin/withdrawals/:id',
-          'GET /api/admin/plan-purchases', 'PATCH /api/admin/plan-purchases/:id',
+          'GET /api/admin/deposits',
           'POST /api/webhooks/nivuspay'
         ]
       });
@@ -1046,7 +1115,6 @@ app.listen(PORT, () => {
   console.log(`🔗 API Test: http://localhost:${PORT}/api/test`);
   console.log(`💰 Depósitos: POST http://localhost:${PORT}/api/payments/deposit`);
   console.log(`💸 Saques: POST http://localhost:${PORT}/api/payments/withdrawal`);
-  console.log(`⭐ Planos: POST http://localhost:${PORT}/api/payments/plan`);
   console.log(`🔗 Frontend URL: ${process.env.VITE_API_URL || 'N/A'}`);
   console.log('🎯 ====================================');
   console.log('🎉 Servidor iniciado! Sistema de pagamentos NivusPay ativo.');

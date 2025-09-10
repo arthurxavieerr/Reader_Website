@@ -1,16 +1,113 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { CreditCard, Clock, AlertCircle, DollarSign, Check, X, Copy, Eye, EyeOff, ArrowUpRight, History, Wallet } from 'lucide-react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { 
+  CreditCard, 
+  Clock, 
+  AlertCircle, 
+  DollarSign, 
+  Check, 
+  X, 
+  Copy, 
+  Eye, 
+  EyeOff, 
+  ArrowUpRight, 
+  History, 
+  Wallet,
+  ArrowDownRight,
+  QrCode,
+  RefreshCw,
+  CheckCircle
+} from 'lucide-react';
+
+interface DepositData {
+  qrCode: string;
+  qrCodeBase64: string;
+  pixCopiaECola: string;
+  transactionId: string;
+  amount: number;
+  expiresAt: string;
+}
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://beta-review-website.onrender.com/api';
 
 const WithdrawPage: React.FC = () => {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  
+  // States para controle de abas
+  const [activeTab, setActiveTab] = useState<'withdraw' | 'deposit'>('withdraw');
+  
+  // States para saque
   const [showWithdrawForm, setShowWithdrawForm] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [pixKey, setPixKey] = useState('');
   const [pixKeyType, setPixKeyType] = useState('cpf');
   const [showPixKey, setShowPixKey] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isProcessingWithdraw, setIsProcessingWithdraw] = useState(false);
+  
+  // States para depósito
+  const [depositAmount, setDepositAmount] = useState('39.90');
+  const [depositData, setDepositData] = useState<DepositData | null>(null);
+  const [isProcessingDeposit, setIsProcessingDeposit] = useState(false);
+  const [depositStatus, setDepositStatus] = useState<'idle' | 'pending' | 'completed' | 'failed'>('idle');
+  const [showQrCode, setShowQrCode] = useState(false);
+  const [copied, setCopied] = useState(false);
+  
+  // State para histórico
   const [showHistory, setShowHistory] = useState(false);
+
+  // Função para fazer requisições autenticadas
+  const makeAuthRequest = async (endpoint: string, options: RequestInit = {}) => {
+    const token = localStorage.getItem('token');
+    
+    if (!token) {
+      throw new Error('Token não encontrado');
+    }
+
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('beta-reader-user');
+        window.location.href = '/login';
+        throw new Error('Sessão expirada');
+      }
+      
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Erro ${response.status}`);
+    }
+
+    return response.json();
+  };
+
+  useEffect(() => {
+    // Verificar se veio de um redirecionamento específico
+    const action = searchParams.get('action');
+    const amount = searchParams.get('amount');
+    
+    if (action === 'deposit') {
+      setActiveTab('deposit');
+      if (amount) {
+        setDepositAmount(amount);
+      }
+    } else if (action === 'withdraw_fee') {
+      setActiveTab('deposit');
+      setDepositAmount('19.90');
+    } else if (action === 'plan') {
+      setActiveTab('deposit');
+      setDepositAmount('39.90');
+    }
+  }, [searchParams]);
 
   if (!user) return null;
 
@@ -18,33 +115,161 @@ const WithdrawPage: React.FC = () => {
     return `R$ ${(value / 100).toFixed(2).replace('.', ',')}`;
   };
 
+  const formatCurrencyInput = (value: string) => {
+    const numericValue = value.replace(/\D/g, '');
+    const formatted = (parseFloat(numericValue) / 100).toFixed(2);
+    return formatted.replace('.', ',');
+  };
+
   const minWithdrawal = user.planType === 'premium' ? 5000 : 12000; // em centavos
   const maxWithdrawal = user.balance;
   const canWithdraw = user.balance >= minWithdrawal;
 
-  // Mock histórico de saques
-  const withdrawHistory = [
-    { id: 1, amount: 5000, status: 'completed', date: '2024-03-15', pixKey: '***.456.789-**' },
-    { id: 2, amount: 10000, status: 'pending', date: '2024-03-20', pixKey: '***.456.789-**' },
-    { id: 3, amount: 7500, status: 'cancelled', date: '2024-03-10', pixKey: '***.456.789-**' },
+  // Mock histórico de transações
+  const transactionHistory = [
+    { id: 1, type: 'withdrawal', amount: 5000, status: 'completed', date: '2024-03-15', pixKey: '***.456.789-**' },
+    { id: 2, type: 'deposit', amount: 3990, status: 'completed', date: '2024-03-20', pixKey: null },
+    { id: 3, type: 'withdrawal', amount: 10000, status: 'pending', date: '2024-03-20', pixKey: '***.456.789-**' },
+    { id: 4, type: 'deposit', amount: 1990, status: 'failed', date: '2024-03-10', pixKey: null },
   ];
 
+  // Função para criar depósito PIX
+  const handleCreateDeposit = async () => {
+    setIsProcessingDeposit(true);
+    
+    try {
+      // Converter valor para centavos
+      const amountInCents = Math.round(parseFloat(depositAmount.replace(',', '.')) * 100);
+      
+      const response = await makeAuthRequest('/payments/deposit', {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: amountInCents
+        })
+      });
+
+      if (response.success) {
+        setDepositData(response.data);
+        setDepositStatus('pending');
+        setShowQrCode(true);
+        
+        // Iniciar polling para verificar status
+        startDepositStatusPolling(response.data.transactionId);
+      } else {
+        alert('Erro ao criar depósito: ' + response.error);
+      }
+    } catch (error) {
+      console.error('Erro ao criar depósito:', error);
+      alert('Erro ao processar depósito. Tente novamente.');
+    } finally {
+      setIsProcessingDeposit(false);
+    }
+  };
+
+  // Polling para verificar status do depósito
+  const startDepositStatusPolling = (transactionId: string) => {
+    const interval = setInterval(async () => {
+      try {
+        const response = await makeAuthRequest(`/payments/deposit/${transactionId}/status`);
+        
+        if (response.success) {
+          const status = response.data.status;
+          
+          if (status === 'COMPLETED') {
+            setDepositStatus('completed');
+            clearInterval(interval);
+            // Atualizar dados do usuário
+            window.location.reload();
+          } else if (status === 'FAILED' || status === 'CANCELLED') {
+            setDepositStatus('failed');
+            clearInterval(interval);
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao verificar status:', error);
+      }
+    }, 3000); // Verificar a cada 3 segundos
+
+    // Parar polling após 15 minutos
+    setTimeout(() => clearInterval(interval), 15 * 60 * 1000);
+  };
+
+  // Função para solicitar saque
   const handleWithdrawSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Verificar se precisa pagar taxa
+    if (user.planType !== 'PREMIUM') {
+      const confirmPayFee = window.confirm(
+        'Para realizar saques, você precisa pagar uma taxa de R$ 19,90. Deseja prosseguir para o pagamento?'
+      );
+      
+      if (confirmPayFee) {
+        navigate('/withdraw?action=withdraw_fee&amount=19.90');
+        setActiveTab('deposit');
+        setDepositAmount('19.90');
+        return;
+      } else {
+        return;
+      }
+    }
+
     if (!withdrawAmount || !pixKey) return;
 
     const amountInCents = Math.round(parseFloat(withdrawAmount.replace(',', '.')) * 100);
     if (amountInCents < minWithdrawal || amountInCents > maxWithdrawal) return;
 
-    setIsProcessing(true);
+    setIsProcessingWithdraw(true);
     
-    // Simular processamento
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    setIsProcessing(false);
-    setShowWithdrawForm(false);
-    setWithdrawAmount('');
-    setPixKey('');
+    try {
+      const response = await makeAuthRequest('/payments/withdrawal', {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: amountInCents,
+          pixKey,
+          pixKeyType
+        })
+      });
+
+      if (response.success) {
+        alert('Solicitação de saque enviada! Será processada em até 48 horas.');
+        setShowWithdrawForm(false);
+        setWithdrawAmount('');
+        setPixKey('');
+      } else {
+        alert('Erro ao solicitar saque: ' + response.error);
+      }
+    } catch (error: any) {
+      console.error('Erro ao solicitar saque:', error);
+      
+      // Verificar se é erro de taxa necessária
+      if (error.message && error.message.includes('Premium')) {
+        const confirmPayFee = window.confirm(
+          'Para realizar saques, você precisa ser Premium ou pagar a taxa de R$ 19,90. Deseja prosseguir para o pagamento?'
+        );
+        
+        if (confirmPayFee) {
+          navigate('/withdraw?action=withdraw_fee&amount=19.90');
+          setActiveTab('deposit');
+          setDepositAmount('19.90');
+          return;
+        }
+      } else {
+        alert('Erro ao processar saque. Tente novamente.');
+      }
+    } finally {
+      setIsProcessingWithdraw(false);
+    }
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error('Erro ao copiar:', error);
+    }
   };
 
   const formatPixKey = (key: string, type: string) => {
@@ -65,6 +290,7 @@ const WithdrawPage: React.FC = () => {
     switch (status) {
       case 'completed': return '#10b981';
       case 'pending': return '#f59e0b';
+      case 'failed':
       case 'cancelled': return '#ef4444';
       default: return '#64748b';
     }
@@ -74,6 +300,7 @@ const WithdrawPage: React.FC = () => {
     switch (status) {
       case 'completed': return 'Concluído';
       case 'pending': return 'Processando';
+      case 'failed': return 'Falhou';
       case 'cancelled': return 'Cancelado';
       default: return 'Desconhecido';
     }
@@ -87,14 +314,35 @@ const WithdrawPage: React.FC = () => {
           <div className="header-content">
             <div className="header-title">
               <Wallet size={28} />
-              <h1 className="page-title">Área de Saque</h1>
+              <h1 className="page-title">Área Financeira</h1>
             </div>
             <button 
               className="history-btn"
               onClick={() => setShowHistory(!showHistory)}
+              aria-label="Mostrar histórico de transações"
             >
               <History size={16} />
               Histórico
+            </button>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="tabs-container">
+          <div className="tabs">
+            <button 
+              className={`tab ${activeTab === 'withdraw' ? 'active' : ''}`}
+              onClick={() => setActiveTab('withdraw')}
+            >
+              <ArrowUpRight size={16} />
+              Saque
+            </button>
+            <button 
+              className={`tab ${activeTab === 'deposit' ? 'active' : ''}`}
+              onClick={() => setActiveTab('deposit')}
+            >
+              <ArrowDownRight size={16} />
+              Depósito
             </button>
           </div>
         </div>
@@ -108,174 +356,323 @@ const WithdrawPage: React.FC = () => {
             <div className="balance-info">
               <h2>Saldo Disponível</h2>
               <div className="balance-amount">{formatCurrency(user.balance)}</div>
-              <p className="balance-subtitle">Total sacado: {formatCurrency(25000)}</p>
-            </div>
-          </div>
-          
-          <div className="balance-actions">
-            <div className="balance-limits">
-              <span className="limit-text">Saque mín: {formatCurrency(minWithdrawal)}</span>
-              <span className="limit-text">Saque máx: {formatCurrency(maxWithdrawal)}</span>
+              <p className="balance-subtitle">
+                Plano: {user.planType === 'PREMIUM' ? 'Premium' : 'Gratuito'}
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Status do Saque */}
-        <div className={`withdraw-status ${canWithdraw ? 'available' : 'unavailable'}`}>
-          <div className="status-icon">
-            {canWithdraw ? <Check size={20} /> : <AlertCircle size={20} />}
-          </div>
-          <div className="status-content">
-            <h3>{canWithdraw ? 'Saque Disponível' : 'Saque Indisponível'}</h3>
-            <p>
-              {canWithdraw 
-                ? 'Você pode solicitar um saque agora'
-                : `Saldo insuficiente para saque (mínimo ${formatCurrency(minWithdrawal)})`
-              }
-            </p>
-          </div>
-          {canWithdraw && (
-            <button 
-              className="withdraw-btn"
-              onClick={() => setShowWithdrawForm(true)}
-            >
-              <ArrowUpRight size={16} />
-              Solicitar Saque
-            </button>
-          )}
-        </div>
-
-        {/* Formulário de Saque */}
-        {showWithdrawForm && (
-          <div className="withdraw-form-card">
-            <div className="form-header">
-              <h3>Solicitar Saque</h3>
-              <button 
-                className="close-btn"
-                onClick={() => setShowWithdrawForm(false)}
-              >
-                <X size={20} />
-              </button>
-            </div>
-            
-            <form onSubmit={handleWithdrawSubmit} className="withdraw-form">
-              <div className="form-group">
-                <label htmlFor="amount">Valor do Saque</label>
-                <div className="amount-input">
-                  <span className="currency">R$</span>
-                  <input
-                    type="text"
-                    id="amount"
-                    value={withdrawAmount}
-                    onChange={(e) => setWithdrawAmount(e.target.value)}
-                    placeholder="0,00"
-                    required
-                  />
-                </div>
-                <div className="amount-suggestions">
-                  {[minWithdrawal, Math.floor(maxWithdrawal/2), maxWithdrawal].map((amount, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      className="suggestion-btn"
-                      onClick={() => setWithdrawAmount((amount/100).toFixed(2).replace('.', ','))}
-                    >
-                      {formatCurrency(amount)}
-                    </button>
-                  ))}
-                </div>
+        {/* Conteúdo das Abas */}
+        {activeTab === 'withdraw' && (
+          <div className="tab-content">
+            {/* Status do Saque */}
+            <div className={`withdraw-status ${canWithdraw ? 'available' : 'unavailable'}`}>
+              <div className="status-icon">
+                {canWithdraw ? <Check size={20} /> : <AlertCircle size={20} />}
               </div>
-
-              <div className="form-group">
-                <label htmlFor="pixType">Tipo de Chave PIX</label>
-                <select 
-                  value={pixKeyType} 
-                  onChange={(e) => setPixKeyType(e.target.value)}
-                  className="pix-type-select"
+              <div className="status-content">
+                <h3>{canWithdraw ? 'Saque Disponível' : 'Saque Indisponível'}</h3>
+                <p>
+                  {canWithdraw 
+                    ? user.planType === 'PREMIUM' 
+                      ? 'Você pode solicitar um saque agora'
+                      : 'Taxa de R$ 19,90 será cobrada para processar o saque'
+                    : `Saldo insuficiente para saque (mínimo ${formatCurrency(minWithdrawal)})`
+                  }
+                </p>
+              </div>
+              {canWithdraw && (
+                <button 
+                  className="withdraw-btn"
+                  onClick={() => setShowWithdrawForm(true)}
                 >
-                  <option value="cpf">CPF</option>
-                  <option value="email">E-mail</option>
-                  <option value="phone">Telefone</option>
-                  <option value="random">Chave Aleatória</option>
-                </select>
+                  <ArrowUpRight size={16} />
+                  Solicitar Saque
+                </button>
+              )}
+            </div>
+
+            {/* Limites de Saque */}
+            <div className="limits-info">
+              <div className="limit-item">
+                <span className="limit-label">Saque mínimo:</span>
+                <span className="limit-value">{formatCurrency(minWithdrawal)}</span>
+              </div>
+              <div className="limit-item">
+                <span className="limit-label">Saque máximo:</span>
+                <span className="limit-value">{formatCurrency(maxWithdrawal)}</span>
+              </div>
+              {user.planType !== 'PREMIUM' && (
+                <div className="limit-item">
+                  <span className="limit-label">Taxa de processamento:</span>
+                  <span className="limit-value">R$ 19,90</span>
+                </div>
+              )}
+            </div>
+
+            {/* Formulário de Saque */}
+            {showWithdrawForm && (
+              <div className="form-modal">
+                <div className="form-modal-content">
+                  <div className="form-header">
+                    <h3>Solicitar Saque</h3>
+                    <button 
+                      className="close-btn"
+                      onClick={() => setShowWithdrawForm(false)}
+                      aria-label="Fechar formulário"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+                  
+                  <form onSubmit={handleWithdrawSubmit} className="withdraw-form">
+                    <div className="form-group">
+                      <label htmlFor="amount">Valor do Saque</label>
+                      <div className="amount-input">
+                        <span className="currency">R$</span>
+                        <input
+                          type="text"
+                          id="amount"
+                          value={withdrawAmount}
+                          onChange={(e) => setWithdrawAmount(formatCurrencyInput(e.target.value))}
+                          placeholder="0,00"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="pixKeyType">Tipo da Chave PIX</label>
+                      <select
+                        id="pixKeyType"
+                        value={pixKeyType}
+                        onChange={(e) => setPixKeyType(e.target.value)}
+                        required
+                      >
+                        <option value="cpf">CPF</option>
+                        <option value="email">Email</option>
+                        <option value="phone">Telefone</option>
+                        <option value="random">Chave Aleatória</option>
+                      </select>
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="pixKey">Chave PIX</label>
+                      <div className="pix-input">
+                        <input
+                          type={showPixKey ? "text" : "password"}
+                          id="pixKey"
+                          value={pixKey}
+                          onChange={(e) => setPixKey(e.target.value)}
+                          placeholder="Digite sua chave PIX"
+                          required
+                        />
+                        <button
+                          type="button"
+                          className="toggle-visibility"
+                          onClick={() => setShowPixKey(!showPixKey)}
+                          aria-label={showPixKey ? "Ocultar chave PIX" : "Mostrar chave PIX"}
+                        >
+                          {showPixKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <button 
+                      type="submit" 
+                      className="submit-btn"
+                      disabled={isProcessingWithdraw}
+                    >
+                      {isProcessingWithdraw ? (
+                        <>
+                          <RefreshCw size={16} className="spin" />
+                          Processando...
+                        </>
+                      ) : (
+                        'Solicitar Saque'
+                      )}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'deposit' && (
+          <div className="tab-content">
+            {/* Informações do Depósito */}
+            <div className="deposit-info">
+              <div className="deposit-header">
+                <h3>Fazer Depósito via PIX</h3>
+                <p>Adicione saldo à sua conta de forma rápida e segura</p>
               </div>
 
-              <div className="form-group">
-                <label htmlFor="pixKey">Chave PIX</label>
-                <div className="pix-input">
-                  <input
-                    type={showPixKey ? "text" : "password"}
-                    id="pixKey"
-                    value={pixKey}
-                    onChange={(e) => setPixKey(e.target.value)}
-                    placeholder={`Digite sua chave PIX (${pixKeyType.toUpperCase()})`}
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="toggle-visibility"
-                    onClick={() => setShowPixKey(!showPixKey)}
+              {!showQrCode ? (
+                <div className="deposit-form">
+                  <div className="form-group">
+                    <label htmlFor="depositAmount">Valor do Depósito</label>
+                    <div className="amount-input">
+                      <span className="currency">R$</span>
+                      <input
+                        type="text"
+                        id="depositAmount"
+                        value={depositAmount}
+                        onChange={(e) => setDepositAmount(formatCurrencyInput(e.target.value))}
+                        placeholder="0,00"
+                        title="Valor do depósito"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="deposit-suggestions">
+                    <p>Valores sugeridos:</p>
+                    <div className="suggestion-buttons">
+                      <button
+                        type="button"
+                        className="suggestion-btn"
+                        onClick={() => setDepositAmount('19,90')}
+                      >
+                        R$ 19,90 (Taxa de Saque)
+                      </button>
+                      <button
+                        type="button"
+                        className="suggestion-btn"
+                        onClick={() => setDepositAmount('39,90')}
+                      >
+                        R$ 39,90 (Plano Premium)
+                      </button>
+                    </div>
+                  </div>
+
+                  <button 
+                    className="generate-qr-btn"
+                    onClick={handleCreateDeposit}
+                    disabled={isProcessingDeposit}
                   >
-                    {showPixKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {isProcessingDeposit ? (
+                      <>
+                        <RefreshCw size={16} className="spin" />
+                        Gerando QR Code...
+                      </>
+                    ) : (
+                      <>
+                        <QrCode size={16} />
+                        Gerar QR Code PIX
+                      </>
+                    )}
                   </button>
                 </div>
-              </div>
+              ) : (
+                <div className="qr-code-section">
+                  {depositStatus === 'completed' ? (
+                    <div className="success-message">
+                      <CheckCircle size={48} color="#10b981" />
+                      <h3>Pagamento Confirmado!</h3>
+                      <p>Seu depósito foi processado com sucesso.</p>
+                      <button 
+                        className="new-deposit-btn"
+                        onClick={() => {
+                          setShowQrCode(false);
+                          setDepositData(null);
+                          setDepositStatus('idle');
+                        }}
+                      >
+                        Fazer Novo Depósito
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="qr-code-container">
+                        <h4>Escaneie o QR Code ou copie o código PIX</h4>
+                        
+                        {depositData && (
+                          <div className="qr-code-display">
+                            <img 
+                              src={depositData.qrCodeBase64} 
+                              alt="QR Code PIX" 
+                              className="qr-code-image"
+                            />
+                            
+                            <div className="pix-code-section">
+                              <p>Ou copie o código PIX:</p>
+                              <div className="pix-code-container">
+                                <input
+                                  type="text"
+                                  value={depositData.pixCopiaECola}
+                                  readOnly
+                                  className="pix-code-input"
+                                  title="Código PIX para copiar"
+                                />
+                                <button
+                                  className="copy-btn"
+                                  onClick={() => copyToClipboard(depositData.pixCopiaECola)}
+                                >
+                                  {copied ? <Check size={16} /> : <Copy size={16} />}
+                                  {copied ? 'Copiado!' : 'Copiar'}
+                                </button>
+                              </div>
+                            </div>
 
-              <div className="form-info">
-                <div className="info-item">
-                  <span className="info-label">Taxa:</span>
-                  <span className="info-value">Gratuita</span>
-                </div>
-                <div className="info-item">
-                  <span className="info-label">Prazo:</span>
-                  <span className="info-value">Até 48 horas</span>
-                </div>
-                <div className="info-item">
-                  <span className="info-label">Método:</span>
-                  <span className="info-value">PIX</span>
-                </div>
-              </div>
+                            <div className="payment-info">
+                              <p><strong>Valor:</strong> R$ {depositAmount}</p>
+                              <p><strong>Status:</strong> Aguardando pagamento</p>
+                              <p><strong>Expira em:</strong> 15 minutos</p>
+                            </div>
 
-              <button 
-                type="submit" 
-                className="submit-btn"
-                disabled={isProcessing || !withdrawAmount || !pixKey}
-              >
-                {isProcessing ? (
-                  <>
-                    <div className="loading-spinner"></div>
-                    Processando...
-                  </>
-                ) : (
-                  <>
-                    <Check size={16} />
-                    Confirmar Saque
-                  </>
-                )}
-              </button>
-            </form>
+                            <div className="payment-status">
+                              <div className="status-indicator">
+                                <Clock size={16} />
+                                <span>Aguardando confirmação do pagamento...</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="qr-actions">
+                        <button 
+                          className="cancel-btn"
+                          onClick={() => {
+                            setShowQrCode(false);
+                            setDepositData(null);
+                            setDepositStatus('idle');
+                          }}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
         {/* Histórico */}
         {showHistory && (
-          <div className="history-card">
-            <div className="history-header">
-              <h3>Histórico de Saques</h3>
-              <span className="history-count">{withdrawHistory.length} transações</span>
-            </div>
-            
+          <div className="history-section">
+            <h3>Histórico de Transações</h3>
             <div className="history-list">
-              {withdrawHistory.map((transaction) => (
+              {transactionHistory.map((transaction) => (
                 <div key={transaction.id} className="history-item">
+                  <div className="transaction-icon">
+                    {transaction.type === 'deposit' ? 
+                      <ArrowDownRight size={16} style={{color: '#10b981'}} /> : 
+                      <ArrowUpRight size={16} style={{color: '#ef4444'}} />
+                    }
+                  </div>
                   <div className="transaction-info">
-                    <div className="transaction-amount">
+                    <span className="transaction-type">
+                      {transaction.type === 'deposit' ? 'Depósito' : 'Saque'}
+                    </span>
+                    <span className="transaction-amount">
                       {formatCurrency(transaction.amount)}
-                    </div>
-                    <div className="transaction-details">
-                      <span className="transaction-date">{transaction.date}</span>
-                      <span className="transaction-pix">PIX: {transaction.pixKey}</span>
-                    </div>
+                    </span>
+                    <span className="transaction-date">{transaction.date}</span>
                   </div>
                   <div 
                     className="transaction-status"
@@ -288,689 +685,789 @@ const WithdrawPage: React.FC = () => {
             </div>
           </div>
         )}
-
-        {/* Informações do Plano */}
-        <div className="plan-info-enhanced">
-          <div className="plan-header">
-            <h3>Seu plano: {user.planType === 'free' ? 'Gratuito' : 'Premium'}</h3>
-            <span className={`plan-badge ${user.planType}`}>
-              {user.planType === 'premium' ? '⭐ Premium' : '🆓 Gratuito'}
-            </span>
-          </div>
-          
-          <div className="plan-benefits">
-            {user.planType === 'free' ? (
-              <div className="benefits-grid">
-                <div className="benefit-item">
-                  <span className="benefit-value">10 pontos</span>
-                  <span className="benefit-label">por livro lido</span>
-                </div>
-                <div className="benefit-item">
-                  <span className="benefit-value">3 pontos</span>
-                  <span className="benefit-label">por avaliação</span>
-                </div>
-                <div className="benefit-item">
-                  <span className="benefit-value">R$ 120,00</span>
-                  <span className="benefit-label">saque mínimo</span>
-                </div>
-              </div>
-            ) : (
-              <div className="benefits-grid">
-                <div className="benefit-item premium">
-                  <span className="benefit-value">30 pontos</span>
-                  <span className="benefit-label">por livro lido (3x)</span>
-                </div>
-                <div className="benefit-item premium">
-                  <span className="benefit-value">9 pontos</span>
-                  <span className="benefit-label">por avaliação (3x)</span>
-                </div>
-                <div className="benefit-item premium">
-                  <span className="benefit-value">R$ 50,00</span>
-                  <span className="benefit-label">saque mínimo</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
-      
+
       <style>{`
         .withdraw-page {
-          padding: 32px 0;
-          min-height: calc(100vh - 140px);
+          min-height: 100vh;
           background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+          padding: 20px 0;
         }
-        
+
         .container {
           max-width: 800px;
           margin: 0 auto;
-          padding: 0 24px;
+          padding: 0 20px;
         }
-        
-        /* Header */
+
         .page-header {
-          margin-bottom: 32px;
+          margin-bottom: 30px;
         }
-        
+
         .header-content {
           display: flex;
           justify-content: space-between;
           align-items: center;
         }
-        
+
         .header-title {
           display: flex;
           align-items: center;
-          gap: 16px;
-          color: #8b5cf6;
-        }
-        
-        .page-title {
-          font-size: 32px;
-          font-weight: 700;
+          gap: 12px;
           color: #1e293b;
-          margin: 0;
-          background: linear-gradient(135deg, #8b5cf6, #06b6d4);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
         }
-        
+
+        .page-title {
+          font-size: 1.8rem;
+          font-weight: 600;
+          margin: 0;
+          color: #1e293b;
+        }
+
         .history-btn {
           display: flex;
           align-items: center;
           gap: 8px;
-          background: white;
-          border: 2px solid #e2e8f0;
-          padding: 12px 20px;
-          border-radius: 12px;
+          padding: 8px 16px;
+          background: rgba(255, 255, 255, 0.2);
+          color: #1e293b;
+          border: none;
+          border-radius: 8px;
           cursor: pointer;
-          color: #64748b;
-          font-weight: 500;
-          transition: all 0.2s ease;
+          transition: all 0.2s;
         }
-        
+
         .history-btn:hover {
-          border-color: #8b5cf6;
-          color: #8b5cf6;
+          background: rgba(255, 255, 255, 0.3);
         }
-        
-        /* Balance Card */
-        .balance-card {
-          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-          color: white;
-          border-radius: 20px;
-          padding: 32px;
-          margin-bottom: 24px;
-          box-shadow: 0 8px 32px rgba(16, 185, 129, 0.3);
-        }
-        
-        .balance-header {
-          display: flex;
-          align-items: center;
-          gap: 24px;
+
+        .tabs-container {
           margin-bottom: 20px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border-radius: 12px;
         }
-        
-        .balance-icon {
-          width: 70px;
-          height: 70px;
-          border-radius: 16px;
-          background-color: rgba(255, 255, 255, 0.2);
+
+        .tabs {
+          display: flex;
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 12px;
+          padding: 4px;
+        }
+
+        .tab {
+          flex: 1;
           display: flex;
           align-items: center;
           justify-content: center;
-          flex-shrink: 0;
+          gap: 8px;
+          padding: 12px 20px;
+          background: transparent;
+          color: #white;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.2s;
+          font-weight: 500;
         }
-        
-        .balance-info {
-          flex: 1;
+
+        .tab.active {
+          background: white;
+          color: #667eea;
         }
-        
-        .balance-info h2 {
-          font-size: 20px;
-          margin: 0 0 8px 0;
-          opacity: 0.9;
+
+        .tab:hover:not(.active) {
+          background: rgba(255, 255, 255, 0.1);
+          color: white;
         }
-        
-        .balance-amount {
-          font-size: 48px;
-          font-weight: 700;
-          margin-bottom: 8px;
-        }
-        
-        .balance-subtitle {
-          font-size: 16px;
-          opacity: 0.8;
-          margin: 0;
-        }
-        
-        .balance-actions {
-          border-top: 1px solid rgba(255, 255, 255, 0.2);
-          padding-top: 20px;
-        }
-        
-        .balance-limits {
-          display: flex;
-          justify-content: space-between;
-          opacity: 0.9;
-        }
-        
-        .limit-text {
-          font-size: 14px;
-        }
-        
-        /* Withdraw Status */
-        .withdraw-status {
-          display: flex;
-          align-items: center;
-          gap: 20px;
+
+        .balance-card {
           background: white;
           border-radius: 16px;
           padding: 24px;
-          margin-bottom: 24px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
-          border: 2px solid #e2e8f0;
-          transition: all 0.2s ease;
+          margin-bottom: 20px;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
         }
-        
-        .withdraw-status.available {
-          border-color: #10b981;
-          background: linear-gradient(135deg, #ecfdf5, #f0fdf4);
+
+        .balance-header {
+          display: flex;
+          align-items: center;
+          gap: 16px;
         }
-        
-        .withdraw-status.unavailable {
-          border-color: #ef4444;
-          background: linear-gradient(135deg, #fef2f2, #fef2f2);
-        }
-        
-        .status-icon {
-          width: 50px;
-          height: 50px;
+
+        .balance-icon {
+          width: 60px;
+          height: 60px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           border-radius: 12px;
           display: flex;
           align-items: center;
           justify-content: center;
-          flex-shrink: 0;
+          color: white;
         }
-        
-        .available .status-icon {
+
+        .balance-info h2 {
+          margin: 0 0 8px 0;
+          font-size: 1.1rem;
+          color: #64748b;
+        }
+
+        .balance-amount {
+          font-size: 2rem;
+          font-weight: 700;
+          color: #1e293b;
+          margin-bottom: 4px;
+        }
+
+        .balance-subtitle {
+          margin: 0;
+          color: #64748b;
+          font-size: 0.9rem;
+        }
+
+        .tab-content {
+          margin-top: 20px;
+        }
+
+        .withdraw-status {
+          background: white;
+          border-radius: 12px;
+          padding: 20px;
+          margin-bottom: 20px;
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .withdraw-status.available {
+          border-left: 4px solid #10b981;
+        }
+
+        .withdraw-status.unavailable {
+          border-left: 4px solid #ef4444;
+        }
+
+        .status-icon {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: white;
+        }
+
+        .withdraw-status.available .status-icon {
           background: #10b981;
-          color: white;
         }
-        
-        .unavailable .status-icon {
+
+        .withdraw-status.unavailable .status-icon {
           background: #ef4444;
-          color: white;
         }
-        
+
         .status-content {
           flex: 1;
         }
-        
+
         .status-content h3 {
-          font-size: 18px;
-          font-weight: 600;
           margin: 0 0 4px 0;
+          font-size: 1.1rem;
           color: #1e293b;
         }
-        
+
         .status-content p {
-          color: #64748b;
           margin: 0;
-          font-size: 15px;
+          color: #64748b;
+          font-size: 0.9rem;
         }
-        
+
         .withdraw-btn {
           display: flex;
           align-items: center;
           gap: 8px;
-          background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+          padding: 10px 20px;
+          background: #10b981;
           color: white;
           border: none;
-          padding: 14px 24px;
-          border-radius: 12px;
-          font-weight: 600;
-          font-size: 15px;
+          border-radius: 8px;
           cursor: pointer;
-          transition: all 0.3s ease;
-          box-shadow: 0 4px 16px rgba(139, 92, 246, 0.3);
+          font-weight: 500;
+          transition: all 0.2s;
         }
-        
+
         .withdraw-btn:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 24px rgba(139, 92, 246, 0.4);
+          background: #059669;
         }
-        
-        /* Withdraw Form */
-        .withdraw-form-card {
+
+        .limits-info {
           background: white;
-          border-radius: 20px;
-          padding: 32px;
-          margin-bottom: 24px;
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          padding: 20px;
+          margin-bottom: 20px;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
         }
-        
+
+        .limit-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 0;
+          border-bottom: 1px solid #f1f5f9;
+        }
+
+        .limit-item:last-child {
+          border-bottom: none;
+        }
+
+        .limit-label {
+          color: #64748b;
+          font-size: 0.9rem;
+        }
+
+        .limit-value {
+          color: #1e293b;
+          font-weight: 600;
+        }
+
+        .form-modal {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+        }
+
+        .form-modal-content {
+          background: white;
+          border-radius: 16px;
+          padding: 24px;
+          width: 90%;
+          max-width: 500px;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
+
         .form-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 24px;
+          margin-bottom: 20px;
         }
-        
+
         .form-header h3 {
-          font-size: 20px;
-          font-weight: 600;
-          color: #1e293b;
           margin: 0;
+          color: #1e293b;
         }
-        
+
         .close-btn {
           background: none;
           border: none;
-          color: #64748b;
           cursor: pointer;
-          padding: 8px;
-          border-radius: 8px;
-          transition: all 0.2s ease;
+          padding: 4px;
+          color: #64748b;
         }
-        
+
         .close-btn:hover {
-          background: #f1f5f9;
-          color: #334155;
+          color: #ef4444;
         }
-        
+
         .withdraw-form {
           display: flex;
           flex-direction: column;
-          gap: 24px;
+          gap: 16px;
         }
-        
+
         .form-group {
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 6px;
         }
-        
+
         .form-group label {
-          font-size: 14px;
-          font-weight: 600;
+          font-weight: 500;
           color: #374151;
+          font-size: 0.9rem;
         }
-        
+
         .amount-input {
           position: relative;
           display: flex;
           align-items: center;
         }
-        
+
         .currency {
           position: absolute;
-          left: 16px;
+          left: 12px;
           color: #64748b;
-          font-weight: 600;
-          font-size: 18px;
+          font-weight: 500;
+          z-index: 1;
         }
-        
+
         .amount-input input {
           width: 100%;
-          padding: 16px 16px 16px 50px;
+          padding: 12px 12px 12px 40px;
           border: 2px solid #e2e8f0;
-          border-radius: 12px;
-          font-size: 18px;
-          font-weight: 600;
-          transition: border-color 0.2s ease;
+          border-radius: 8px;
+          font-size: 1rem;
+          transition: border-color 0.2s;
         }
-        
+
         .amount-input input:focus {
           outline: none;
-          border-color: #8b5cf6;
-          box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1);
+          border-color: #667eea;
         }
-        
-        .amount-suggestions {
-          display: flex;
-          gap: 8px;
-          margin-top: 8px;
-        }
-        
-        .suggestion-btn {
-          background: #f8fafc;
-          border: 1px solid #e2e8f0;
-          padding: 8px 16px;
-          border-radius: 8px;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: 500;
-          color: #64748b;
-          transition: all 0.2s ease;
-        }
-        
-        .suggestion-btn:hover {
-          background: #8b5cf6;
-          color: white;
-          border-color: #8b5cf6;
-        }
-        
-        .pix-type-select {
-          width: 100%;
-          padding: 14px 16px;
-          border: 2px solid #e2e8f0;
-          border-radius: 12px;
-          font-size: 16px;
-          background: white;
-          transition: border-color 0.2s ease;
-        }
-        
-        .pix-type-select:focus {
-          outline: none;
-          border-color: #8b5cf6;
-          box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1);
-        }
-        
+
         .pix-input {
           position: relative;
+          display: flex;
+          align-items: center;
         }
-        
+
         .pix-input input {
           width: 100%;
-          padding: 14px 50px 14px 16px;
+          padding: 12px 40px 12px 12px;
           border: 2px solid #e2e8f0;
-          border-radius: 12px;
-          font-size: 16px;
-          transition: border-color 0.2s ease;
+          border-radius: 8px;
+          font-size: 1rem;
+          transition: border-color 0.2s;
         }
-        
+
         .pix-input input:focus {
           outline: none;
-          border-color: #8b5cf6;
-          box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1);
+          border-color: #667eea;
         }
-        
+
         .toggle-visibility {
           position: absolute;
-          right: 16px;
-          top: 50%;
-          transform: translateY(-50%);
+          right: 12px;
           background: none;
           border: none;
-          color: #64748b;
           cursor: pointer;
-        }
-        
-        .form-info {
-          background: #f8fafc;
-          padding: 16px;
-          border-radius: 12px;
-          display: flex;
-          justify-content: space-between;
-        }
-        
-        .info-item {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-        
-        .info-label {
-          font-size: 12px;
           color: #64748b;
-          font-weight: 500;
+          padding: 4px;
         }
-        
-        .info-value {
-          font-size: 14px;
-          color: #1e293b;
-          font-weight: 600;
+
+        select {
+          width: 100%;
+          padding: 12px;
+          border: 2px solid #e2e8f0;
+          border-radius: 8px;
+          font-size: 1rem;
+          background: white;
+          cursor: pointer;
+          transition: border-color 0.2s;
         }
-        
+
+        select:focus {
+          outline: none;
+          border-color: #667eea;
+        }
+
         .submit-btn {
+          padding: 12px 24px;
+          background: #667eea;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
           display: flex;
           align-items: center;
           justify-content: center;
           gap: 8px;
-          background: linear-gradient(135deg, #8b5cf6, #06b6d4);
-          color: white;
-          border: none;
-          padding: 16px 24px;
-          border-radius: 12px;
-          font-weight: 600;
-          font-size: 16px;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          box-shadow: 0 4px 16px rgba(139, 92, 246, 0.3);
         }
-        
+
         .submit-btn:hover:not(:disabled) {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 24px rgba(139, 92, 246, 0.4);
+          background: #5a67d8;
         }
-        
+
         .submit-btn:disabled {
           opacity: 0.6;
           cursor: not-allowed;
-          transform: none;
         }
-        
-        .loading-spinner {
-          width: 16px;
-          height: 16px;
-          border: 2px solid rgba(255, 255, 255, 0.3);
-          border-top: 2px solid white;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        
-        /* History */
-        .history-card {
+
+        .deposit-info {
           background: white;
           border-radius: 16px;
           padding: 24px;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .deposit-header {
+          text-align: center;
           margin-bottom: 24px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
-          border: 1px solid #e2e8f0;
         }
-        
-        .history-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 20px;
-        }
-        
-        .history-header h3 {
-          font-size: 18px;
-          font-weight: 600;
+
+        .deposit-header h3 {
+          margin: 0 0 8px 0;
           color: #1e293b;
+          font-size: 1.3rem;
+        }
+
+        .deposit-header p {
           margin: 0;
-        }
-        
-        .history-count {
-          font-size: 14px;
           color: #64748b;
-          background: #f1f5f9;
-          padding: 4px 12px;
-          border-radius: 12px;
         }
-        
+
+        .deposit-form {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+
+        .deposit-suggestions {
+          text-align: center;
+        }
+
+        .deposit-suggestions p {
+          margin: 0 0 12px 0;
+          color: #64748b;
+          font-size: 0.9rem;
+        }
+
+        .suggestion-buttons {
+          display: flex;
+          gap: 12px;
+          justify-content: center;
+          flex-wrap: wrap;
+        }
+
+        .suggestion-btn {
+          padding: 8px 16px;
+          background: #f8fafc;
+          border: 2px solid #e2e8f0;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.2s;
+          font-size: 0.9rem;
+          color: #374151;
+        }
+
+        .suggestion-btn:hover {
+          background: #667eea;
+          color: white;
+          border-color: #667eea;
+        }
+
+        .generate-qr-btn {
+          padding: 16px 24px;
+          background: #10b981;
+          color: white;
+          border: none;
+          border-radius: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          font-size: 1rem;
+        }
+
+        .generate-qr-btn:hover:not(:disabled) {
+          background: #059669;
+        }
+
+        .generate-qr-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .qr-code-section {
+          text-align: center;
+        }
+
+        .success-message {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 16px;
+          padding: 40px 20px;
+        }
+
+        .success-message h3 {
+          margin: 0;
+          color: #10b981;
+          font-size: 1.3rem;
+        }
+
+        .success-message p {
+          margin: 0;
+          color: #64748b;
+        }
+
+        .new-deposit-btn {
+          padding: 12px 24px;
+          background: #667eea;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .new-deposit-btn:hover {
+          background: #5a67d8;
+        }
+
+        .qr-code-container h4 {
+          margin: 0 0 20px 0;
+          color: #1e293b;
+        }
+
+        .qr-code-display {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+          align-items: center;
+        }
+
+        .qr-code-image {
+          width: 200px;
+          height: 200px;
+          border: 2px solid #e2e8f0;
+          border-radius: 12px;
+          padding: 12px;
+          background: white;
+        }
+
+        .pix-code-section {
+          width: 100%;
+        }
+
+        .pix-code-section p {
+          margin: 0 0 8px 0;
+          color: #64748b;
+          font-size: 0.9rem;
+        }
+
+        .pix-code-container {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+
+        .pix-code-input {
+          flex: 1;
+          padding: 8px 12px;
+          border: 2px solid #e2e8f0;
+          border-radius: 8px;
+          font-size: 0.8rem;
+          background: #f8fafc;
+          font-family: monospace;
+        }
+
+        .copy-btn {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 12px;
+          background: #667eea;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 0.8rem;
+          font-weight: 500;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+
+        .copy-btn:hover {
+          background: #5a67d8;
+        }
+
+        .payment-info {
+          background: #f8fafc;
+          border-radius: 8px;
+          padding: 16px;
+          text-align: left;
+        }
+
+        .payment-info p {
+          margin: 4px 0;
+          color: #374151;
+          font-size: 0.9rem;
+        }
+
+        .payment-status {
+          display: flex;
+          justify-content: center;
+          margin-top: 16px;
+        }
+
+        .status-indicator {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: #f59e0b;
+          font-size: 0.9rem;
+        }
+
+        .qr-actions {
+          margin-top: 20px;
+          display: flex;
+          justify-content: center;
+        }
+
+        .cancel-btn {
+          padding: 10px 20px;
+          background: #ef4444;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: 500;
+          transition: all 0.2s;
+        }
+
+        .cancel-btn:hover {
+          background: #dc2626;
+        }
+
+        .history-section {
+          background: white;
+          border-radius: 16px;
+          padding: 24px;
+          margin-top: 20px;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .history-section h3 {
+          margin: 0 0 20px 0;
+          color: #1e293b;
+        }
+
         .history-list {
           display: flex;
           flex-direction: column;
-          gap: 16px;
+          gap: 12px;
         }
-        
+
         .history-item {
           display: flex;
-          justify-content: space-between;
           align-items: center;
+          gap: 16px;
           padding: 16px;
           background: #f8fafc;
           border-radius: 12px;
           border: 1px solid #e2e8f0;
         }
-        
-        .transaction-info {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-        
-        .transaction-amount {
-          font-size: 18px;
-          font-weight: 600;
-          color: #1e293b;
-        }
-        
-        .transaction-details {
-          display: flex;
-          gap: 16px;
-          font-size: 14px;
-          color: #64748b;
-        }
-        
-        .transaction-status {
-          font-size: 14px;
-          font-weight: 600;
-          padding: 6px 12px;
-          border-radius: 8px;
-          background: rgba(0, 0, 0, 0.05);
-        }
-        
-        /* Plan Info Enhanced */
-        .plan-info-enhanced {
+
+        .transaction-icon {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
           background: white;
-          border-radius: 16px;
-          padding: 24px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
-          border: 1px solid #e2e8f0;
-        }
-        
-        .plan-header {
           display: flex;
-          justify-content: space-between;
           align-items: center;
-          margin-bottom: 20px;
+          justify-content: center;
+          border: 2px solid #e2e8f0;
         }
-        
-        .plan-header h3 {
-          font-size: 18px;
-          font-weight: 600;
-          color: #1e293b;
-          margin: 0;
-        }
-        
-        .plan-badge {
-          padding: 8px 16px;
-          border-radius: 12px;
-          font-size: 14px;
-          font-weight: 600;
-        }
-        
-        .plan-badge.free {
-          background: #f1f5f9;
-          color: #64748b;
-        }
-        
-        .plan-badge.premium {
-          background: linear-gradient(135deg, #fbbf24, #f59e0b);
-          color: white;
-        }
-        
-        .benefits-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
-        }
-        
-        .benefit-item {
+
+        .transaction-info {
+          flex: 1;
           display: flex;
           flex-direction: column;
-          gap: 4px;
-          padding: 16px;
-          background: #f8fafc;
-          border-radius: 12px;
-          text-align: center;
-          border: 1px solid #e2e8f0;
+          gap: 2px;
         }
-        
-        .benefit-item.premium {
-          border-color: #f59e0b;
-        }
-        
-        .benefit-value {
-          font-size: 18px;
-          font-weight: 700;
+
+        .transaction-type {
+          font-weight: 600;
           color: #1e293b;
         }
-        
-        .benefit-label {
-          font-size: 12px;
-          color: #64748b;
-          font-weight: 500;
+
+        .transaction-amount {
+          font-weight: 700;
+          color: #374151;
         }
-        
-        /* Responsive */
+
+        .transaction-date {
+          font-size: 0.8rem;
+          color: #64748b;
+        }
+
+        .transaction-status {
+          font-weight: 600;
+          font-size: 0.9rem;
+        }
+
+        .deposit-icon {
+          color: #10b981;
+        }
+
+        .withdrawal-icon {
+          color: #ef4444;
+        }
+
+        .spin {
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
         @media (max-width: 768px) {
           .container {
             padding: 0 16px;
           }
-          
+
           .header-content {
             flex-direction: column;
             gap: 16px;
-            align-items: stretch;
+            text-align: center;
           }
-          
+
+          .tabs {
+            flex-direction: column;
+          }
+
           .balance-header {
             flex-direction: column;
             text-align: center;
-            gap: 16px;
+            gap: 12px;
           }
-          
-          .balance-amount {
-            font-size: 36px;
-          }
-          
-          .balance-limits {
-            flex-direction: column;
-            gap: 8px;
-            text-align: center;
-          }
-          
+
           .withdraw-status {
             flex-direction: column;
             text-align: center;
-            gap: 16px;
-          }
-          
-          .form-info {
-            flex-direction: column;
             gap: 12px;
           }
-          
-          .amount-suggestions {
+
+          .suggestion-buttons {
             flex-direction: column;
           }
-          
-          .benefits-grid {
-            grid-template-columns: 1fr;
+
+          .pix-code-container {
+            flex-direction: column;
           }
-          
+
+          .pix-code-input {
+            word-break: break-all;
+          }
+
+          .form-modal-content {
+            margin: 20px;
+            width: calc(100% - 40px);
+          }
+
           .history-item {
             flex-direction: column;
-            gap: 8px;
-            align-items: flex-start;
+            text-align: center;
           }
-          
-          .transaction-details {
-            flex-direction: column;
-            gap: 4px;
+
+          .transaction-info {
+            align-items: center;
           }
         }
       `}</style>

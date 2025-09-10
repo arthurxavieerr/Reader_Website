@@ -1,4 +1,4 @@
-// prisma/schema.prisma - VERSÃO COMPLETA COM TRANSAÇÕES
+// prisma/schema.prisma - VERSÃO COMPLETA COM SISTEMA DE DEPÓSITOS NIVUSPAY
 generator client {
   provider = "prisma-client-js"
 }
@@ -80,36 +80,35 @@ model Book {
 // TRANSAÇÕES E PAGAMENTOS
 // ============================================
 model Transaction {
-  id                 String             @id @default(cuid())
-  userId             String
-  type               TransactionType
-  status             TransactionStatus  @default(PENDING)
-  amount             Int                // em centavos
-  currency           String             @default("BRL")
+  id                     String             @id @default(cuid())
+  userId                 String
+  type                   TransactionType
+  status                 TransactionStatus  @default(PENDING)
+  amount                 Int                // em centavos
+  currency               String             @default("BRL")
   
-  // Dados do PIX/Pagamento
-  pixQrCode          String?
-  pixTxId            String?            // ID da transação no gateway
-  pixKey             String?
-  pixKeyType         PixKeyType?
+  // Dados do PIX/Pagamento (para saques)
+  pixKey                 String?
+  pixKeyType             PixKeyType?
   
-  // Dados do NivusPay
-  nivusPayId         String?            @unique
-  nivusPayStatus     String?
-  nivusPayResponse   Json?              // Resposta completa da API
+  // Dados do NivusPay (para depósitos)
+  nivusPayTransactionId  String?            // ID da transação na Nivuspay
+  nivusPayCustomId       String?            // ID customizado enviado para Nivuspay
+  nivusPayStatus         String?            // Status retornado pela Nivuspay
+  pixData                Json?              // QR Code, copia e cola, etc.
   
   // Dados para saque
-  bankAccount        Json?              // Dados bancários para saque
-  adminNotes         String?            // Observações do admin
-  processedBy        String?            // ID do admin que processou
-  processedAt        DateTime?
+  bankAccount            Json?              // Dados bancários para saque
+  adminNotes             String?            // Observações do admin
+  processedBy            String?            // ID do admin que processou
+  processedAt            DateTime?
   
   // Timestamps
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
   
   // Relacionamentos
-  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   @@map("transactions")
 }
@@ -162,7 +161,7 @@ enum IncomeRange {
 }
 
 enum TransactionType {
-  DEPOSIT      // Depósito
+  DEPOSIT      // Depósito via PIX (R$ 19,90 ou R$ 39,90)
   WITHDRAWAL   // Saque
   REWARD       // Recompensa por livro
   BONUS        // Bônus do sistema
