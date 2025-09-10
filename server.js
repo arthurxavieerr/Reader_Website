@@ -1,4 +1,4 @@
-// server.js - VERSÃO CORRIGIDA PARA RESOLVER PROBLEMAS DE PREPARED STATEMENTS E AUTENTICAÇÃO
+// server.js - VERSÃO COMPLETA CORRIGIDA COM NIVUSPAY OFICIAL
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -44,8 +44,7 @@ async function initializePrisma() {
       datasources: { 
         db: { url: process.env.DATABASE_URL }
       },
-      log: isDebug ? ['warn', 'error'] : ['error'], // Reduzir logs para evitar spam
-      // Configurações para evitar problemas de prepared statements
+      log: isDebug ? ['warn', 'error'] : ['error'],
       __internal: {
         engine: {
           allowTriggerPanic: false
@@ -75,7 +74,7 @@ async function initializePrisma() {
       }
     }
 
-    // Teste básico usando executeRaw ao invés de queryRaw para evitar prepared statements
+    // Teste básico usando executeRaw ao invés de queryRaw
     try {
       await client.$executeRaw`SELECT 1`;
       console.log('✅ Teste de conexão bem-sucedido');
@@ -90,7 +89,6 @@ async function initializePrisma() {
     isConnecting = false;
     console.error('❌ Erro na inicialização do Prisma:', error);
     
-    // Limpar cliente em caso de erro
     if (client) {
       try {
         await client.$disconnect();
@@ -133,114 +131,131 @@ async function ensureConnection(req, res, next) {
   }
 }
 
-// Configurações da Nivuspay
+// Configurações da Nivuspay - CORRIGIDA CONFORME DOCUMENTAÇÃO
 const NIVUSPAY_CONFIG = {
   BASE_URL: 'https://pay.nivuspay.com.br/api/v1',
-  PUBLIC_KEY: process.env.NIVUSPAY_PUBLIC_KEY || '0b22c6ef-abc2-4ad9-b313-a6e6fac4965d',
   SECRET_KEY: process.env.NIVUSPAY_SECRET_KEY || '58466d2b-7365-498f-9038-01fe2f537d1a'
 };
 
-// Função para fazer autenticação com a Nivuspay
-async function nivusPayAuth() {
+// Função CORRETA para criar transação PIX na Nivuspay (SEM AUTENTICAÇÃO SEPARADA)
+async function createNivusPayPixTransaction(amount, description, userId, userInfo = {}) {
   try {
-    const response = await fetch(`${NIVUSPAY_CONFIG.BASE_URL}/auth.apiKeySeller`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        apiKey: NIVUSPAY_CONFIG.SECRET_KEY
-      })
-    });
-
-    const data = await response.json();
-    
-    if (!data.success) {
-      throw new Error('Falha na autenticação Nivuspay: ' + (data.message || 'Erro desconhecido'));
-    }
-
-    return data.token;
-  } catch (error) {
-    console.error('❌ Nivuspay Auth Error:', error);
-    throw error;
-  }
-}
-
-// Função para criar transação PIX na Nivuspay
-async function createNivusPayPixTransaction(amount, description, userId) {
-  try {
-    const token = await nivusPayAuth();
+    console.log('💰 Criando transação PIX na NivusPay...');
     
     // Gerar ID único para a transação
     const customId = `deposit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
+    // Dados obrigatórios conforme documentação oficial
+    const transactionData = {
+      name: userInfo.name || 'Cliente',
+      email: userInfo.email || 'cliente@betareader.com',
+      cpf: userInfo.cpf || '12345678901', // CPF deve ter 11 dígitos
+      phone: userInfo.phone || '16999999999', // 8-12 dígitos
+      paymentMethod: 'PIX',
+      amount: amount, // Valor em centavos
+      traceable: true,
+      items: [
+        {
+          unitPrice: amount,
+          title: description,
+          quantity: 1,
+          tangible: false
+        }
+      ],
+      externalId: customId,
+      postbackUrl: `${process.env.APP_URL || 'http://localhost:3001'}/api/webhooks/nivuspay`
+    };
+
+    console.log('📤 Enviando dados para NivusPay:', JSON.stringify(transactionData, null, 2));
+
     const response = await fetch(`${NIVUSPAY_CONFIG.BASE_URL}/transaction.purchase`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Authorization': NIVUSPAY_CONFIG.SECRET_KEY // Autenticação direta no header
       },
-      body: JSON.stringify({
-        customId: customId,
-        amount: amount, // Valor em centavos
-        currency: 'BRL',
-        description: description,
-        paymentMethod: 'PIX',
-        customer: {
-          name: 'Cliente',
-          email: 'cliente@example.com',
-          document: '00000000000'
-        },
-        webhook: {
-          url: `${process.env.APP_URL || 'http://localhost:3001'}/api/webhooks/nivuspay`,
-          events: ['payment.approved', 'payment.rejected', 'payment.cancelled']
-        },
-        expirationTime: 900 // 15 minutos
-      })
+      body: JSON.stringify(transactionData)
     });
 
-    const data = await response.json();
-    
-    if (!data.success) {
-      throw new Error('Falha ao criar transação: ' + (data.message || 'Erro desconhecido'));
+    console.log('📊 Status da resposta NivusPay:', response.status);
+    console.log('📊 Headers da resposta:', Object.fromEntries(response.headers));
+
+    const responseText = await response.text();
+    console.log('📄 Resposta NivusPay (texto):', responseText);
+
+    if (!response.ok) {
+      throw new Error(`NivusPay API Error: ${response.status} - ${responseText}`);
     }
 
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      throw new Error(`Erro ao fazer parse da resposta NivusPay: ${parseError.message}`);
+    }
+
+    console.log('📋 Resposta NivusPay (JSON):', JSON.stringify(data, null, 2));
+
+    // Extrair dados conforme documentação
     return {
-      transactionId: data.data.id,
-      customId: customId,
-      qrCode: data.data.payment?.pixQrCode || data.data.qrCode,
-      qrCodeBase64: data.data.payment?.pixQrCodeBase64 || `data:image/png;base64,${data.data.qrCode}`,
-      pixCopiaECola: data.data.payment?.pixCopiaECola || data.data.qrCodeText,
+      transactionId: data.id || data.transactionId,
+      customId: data.customId || customId,
+      qrCode: data.pixCode || data.pixQrCode,
+      qrCodeBase64: data.pixQrCode ? `data:image/png;base64,${data.pixQrCode}` : null,
+      pixCopiaECola: data.pixCode,
       amount: amount,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() // 15 minutos
+      expiresAt: data.expiresAt || new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      status: data.status || 'PENDING'
     };
+
   } catch (error) {
-    console.error('❌ Nivuspay Transaction Error:', error);
+    console.error('❌ Erro na criação da transação NivusPay:', error);
     throw error;
   }
 }
 
-// Função para verificar status do pagamento na Nivuspay
+// Função CORRETA para verificar status do pagamento na Nivuspay
 async function checkNivusPayPaymentStatus(transactionId) {
   try {
-    const token = await nivusPayAuth();
+    console.log('🔍 Verificando status do pagamento na NivusPay:', transactionId);
     
     const response = await fetch(`${NIVUSPAY_CONFIG.BASE_URL}/transaction.getPayment?id=${transactionId}`, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${token}`
+        'Authorization': NIVUSPAY_CONFIG.SECRET_KEY
       }
     });
 
-    const data = await response.json();
-    
-    if (!data.success) {
-      throw new Error('Falha ao consultar status: ' + (data.message || 'Erro desconhecido'));
+    console.log('📊 Status da consulta NivusPay:', response.status);
+
+    if (!response.ok) {
+      throw new Error(`NivusPay Status API Error: ${response.status}`);
     }
 
-    return data.data.status; // 'pending', 'approved', 'rejected', 'cancelled'
+    const responseText = await response.text();
+    let data;
+    
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      throw new Error(`Erro ao fazer parse da resposta de status: ${parseError.message}`);
+    }
+
+    console.log('📋 Status retornado:', data.status);
+
+    // Mapear status da NivusPay para nosso sistema
+    const statusMap = {
+      'PENDING': 'pending',
+      'APPROVED': 'approved', 
+      'REJECTED': 'rejected',
+      'CANCELLED': 'cancelled',
+      'REFUNDED': 'refunded'
+    };
+
+    return statusMap[data.status] || 'pending';
+
   } catch (error) {
-    console.error('❌ Nivuspay Status Check Error:', error);
+    console.error('❌ Erro ao verificar status na NivusPay:', error);
     throw error;
   }
 }
@@ -600,8 +615,13 @@ app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (re
 
     console.log('💰 Criando transação PIX na Nivuspay...');
     
-    // Criar transação PIX na Nivuspay
-    const nivusPayData = await createNivusPayPixTransaction(amount, description, userId);
+    // Criar transação PIX na Nivuspay - CHAMADA CORRIGIDA
+    const nivusPayData = await createNivusPayPixTransaction(amount, description, userId, {
+      name: user.name,
+      email: user.email,
+      cpf: '12345678901', // Você pode adicionar CPF ao modelo User se quiser
+      phone: user.phone || '16999999999'
+    });
 
     console.log('💾 Salvando transação no banco...');
     
@@ -972,24 +992,28 @@ app.post('/api/webhooks/nivuspay', express.raw({ type: 'application/json' }), as
     console.log('📥 Nivuspay Webhook received:', payload);
 
     // Validar payload básico
-    if (!payload.data || !payload.data.customId) {
+    if (!payload.paymentId && !payload.customId) {
       console.log('❌ Invalid webhook payload');
       return res.status(400).json({ error: 'Invalid payload' });
     }
 
-    const { customId, status, id: nivusPayTransactionId } = payload.data;
+    const { paymentId, customId, status } = payload;
 
-    // Buscar transação pelo customId
+    // Buscar transação pelo customId ou paymentId
     const transaction = await client.transaction.findFirst({
       where: { 
-        nivusPayCustomId: customId,
+        OR: [
+          { nivusPayCustomId: customId },
+          { nivusPayTransactionId: paymentId },
+          { nivusPayTransactionId: payload.externalId }
+        ],
         type: 'DEPOSIT'
       },
       include: { user: true }
     });
 
     if (!transaction) {
-      console.log('❌ Transaction not found for customId:', customId);
+      console.log('❌ Transaction not found for webhook data:', { paymentId, customId });
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
@@ -1002,14 +1026,14 @@ app.post('/api/webhooks/nivuspay', express.raw({ type: 'application/json' }), as
     let newStatus = 'PENDING';
     let shouldUpdateUser = false;
 
-    // Mapear status da Nivuspay
+    // Mapear status da Nivuspay conforme documentação
     switch (status) {
-      case 'approved':
+      case 'APPROVED':
         newStatus = 'COMPLETED';
         shouldUpdateUser = true;
         break;
-      case 'rejected':
-      case 'cancelled':
+      case 'REJECTED':
+      case 'CANCELLED':
         newStatus = 'FAILED';
         break;
       default:
