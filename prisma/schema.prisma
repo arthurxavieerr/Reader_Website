@@ -1,4 +1,4 @@
-// prisma/schema.prisma - CORRIGIDO PARA SUPABASE
+// prisma/schema.prisma - VERSÃO COMPLETA COM TRANSAÇÕES
 generator client {
   provider = "prisma-client-js"
 }
@@ -40,7 +40,11 @@ model User {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   
-  @@map("users") // MAPEAR PARA TABELA users (minúscula)
+  // Relacionamentos
+  transactions         Transaction[]
+  planPurchases        PlanPurchase[]
+  
+  @@map("users")
 }
 
 // ============================================
@@ -69,7 +73,72 @@ model Book {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   
-  @@map("books") // MAPEAR PARA TABELA books (minúscula)
+  @@map("books")
+}
+
+// ============================================
+// TRANSAÇÕES E PAGAMENTOS
+// ============================================
+model Transaction {
+  id                 String             @id @default(cuid())
+  userId             String
+  type               TransactionType
+  status             TransactionStatus  @default(PENDING)
+  amount             Int                // em centavos
+  currency           String             @default("BRL")
+  
+  // Dados do PIX/Pagamento
+  pixQrCode          String?
+  pixTxId            String?            // ID da transação no gateway
+  pixKey             String?
+  pixKeyType         PixKeyType?
+  
+  // Dados do NivusPay
+  nivusPayId         String?            @unique
+  nivusPayStatus     String?
+  nivusPayResponse   Json?              // Resposta completa da API
+  
+  // Dados para saque
+  bankAccount        Json?              // Dados bancários para saque
+  adminNotes         String?            // Observações do admin
+  processedBy        String?            // ID do admin que processou
+  processedAt        DateTime?
+  
+  // Timestamps
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  
+  // Relacionamentos
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("transactions")
+}
+
+model PlanPurchase {
+  id                 String             @id @default(cuid())
+  userId             String
+  planType           PlanType
+  amount             Int                // em centavos
+  status             TransactionStatus  @default(PENDING)
+  
+  // Dados do pagamento
+  pixQrCode          String?
+  nivusPayId         String?            @unique
+  nivusPayResponse   Json?
+  
+  // Ativação manual pelo admin
+  activatedBy        String?            // ID do admin que ativou
+  activatedAt        DateTime?
+  adminNotes         String?
+  
+  // Timestamps
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  
+  // Relacionamentos
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("plan_purchases")
 }
 
 // ============================================
@@ -90,4 +159,28 @@ enum IncomeRange {
   MEDIUM
   HIGH
   UNEMPLOYED
+}
+
+enum TransactionType {
+  DEPOSIT      // Depósito
+  WITHDRAWAL   // Saque
+  REWARD       // Recompensa por livro
+  BONUS        // Bônus do sistema
+  REFUND       // Reembolso
+}
+
+enum TransactionStatus {
+  PENDING      // Aguardando pagamento/processamento
+  PROCESSING   // Em processamento
+  COMPLETED    // Concluído
+  FAILED       // Falhou
+  CANCELLED    // Cancelado
+  REJECTED     // Rejeitado (admin)
+}
+
+enum PixKeyType {
+  CPF
+  EMAIL
+  PHONE
+  RANDOM
 }
