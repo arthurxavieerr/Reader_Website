@@ -1,20 +1,22 @@
-// src/types/index.ts
+// src/types/index.ts - ARQUIVO COMPLETO COM TODAS AS FUNCIONALIDADES + CPF
 
 export interface User {
   id: string;
   name: string;
   email: string;
-  phone: string;
+  phone?: string;
+  cpf: string; // CAMPO CPF OBRIGATÓRIO
   level: number;
   points: number;
   balance: number;
-  planType: 'free' | 'premium';
+  planType: 'FREE' | 'PREMIUM';
   isAdmin: boolean;
   onboardingCompleted: boolean;
-  commitment?: 'committed' | 'curious';
-  incomeRange?: 'low' | 'medium' | 'high' | 'unemployed';
+  commitment?: 'COMMITTED' | 'CURIOUS';
+  incomeRange?: 'LOW' | 'MEDIUM' | 'HIGH' | 'UNEMPLOYED';
   profileImage?: string | null;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface Book {
@@ -60,11 +62,22 @@ export interface Reading {
 export interface Transaction {
   id: string;
   userId: string;
-  type: 'earning' | 'withdrawal' | 'bonus';
+  type: 'DEPOSIT' | 'WITHDRAWAL' | 'REWARD' | 'BONUS' | 'REFUND';
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'REJECTED';
   amount: number;
-  status: 'pending' | 'completed' | 'failed';
-  description: string;
+  currency: string;
+  pixKey?: string;
+  pixKeyType?: 'CPF' | 'EMAIL' | 'PHONE' | 'RANDOM';
+  nivusPayTransactionId?: string;
+  nivusPayCustomId?: string;
+  nivusPayStatus?: string;
+  pixData?: any;
+  bankAccount?: any;
+  adminNotes?: string;
+  processedBy?: string;
+  processedAt?: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface Post {
@@ -99,12 +112,12 @@ export interface Level {
   pointsRequired: number;
   booksUnlocked: number;
   color: string;
-  isAdmin?: boolean; // Nova propriedade para identificar nível admin
+  isAdmin?: boolean;
 }
 
 export interface OnboardingData {
-  commitment: 'committed' | 'curious';
-  incomeRange: 'low' | 'medium' | 'high' | 'unemployed';
+  commitment: 'COMMITTED' | 'CURIOUS';
+  incomeRange: 'LOW' | 'MEDIUM' | 'HIGH' | 'UNEMPLOYED';
 }
 
 export interface AuthState {
@@ -124,8 +137,15 @@ export interface AuthActions {
 export interface RegisterData {
   name: string;
   email: string;
-  phone: string;
+  phone?: string;
+  cpf: string; // CAMPO CPF OBRIGATÓRIO
   password: string;
+}
+
+export interface UpdateProfileData {
+  name?: string;
+  phone?: string;
+  cpf?: string; // CAMPO CPF PARA ATUALIZAÇÃO
 }
 
 export interface BookStats {
@@ -165,23 +185,29 @@ export interface PaginatedResponse<T> {
   totalPages: number;
 }
 
+// Interfaces para validação
+export interface ValidationError {
+  field: string;
+  message: string;
+}
+
 // Constants
 export const INCOME_RANGES = {
-  low: 'R$ 1.000 - R$ 10.000',
-  medium: 'R$ 10.000 - R$ 50.000',
-  high: 'R$ 100.000+',
-  unemployed: 'Desempregado(a)'
+  LOW: 'R$ 1.000 - R$ 10.000',
+  MEDIUM: 'R$ 10.000 - R$ 50.000',
+  HIGH: 'R$ 100.000+',
+  UNEMPLOYED: 'Desempregado(a)'
 } as const;
 
 export const PLAN_BENEFITS = {
-  free: {
+  FREE: {
     pointsPerBook: 10,
     pointsPerReview: 3,
     pointsPerComment: 1,
     booksPerLevel: 1,
     minWithdrawal: 12000, // R$ 120 (em centavos)
   },
-  premium: {
+  PREMIUM: {
     pointsPerBook: 30,
     pointsPerReview: 9,
     pointsPerComment: 3,
@@ -263,3 +289,47 @@ export interface AdminLog {
   timestamp: string;
   ipAddress?: string;
 }
+
+// FUNÇÕES UTILITÁRIAS PARA CPF
+export const validateCPF = (cpf: string): boolean => {
+  // Remove formatação
+  const cleanCPF = cpf.replace(/\D/g, '');
+  
+  // Verifica se tem 11 dígitos
+  if (cleanCPF.length !== 11) return false;
+  
+  // Verifica se todos os dígitos são iguais
+  if (/^(\d)\1{10}$/.test(cleanCPF)) return false;
+  
+  // Validação dos dígitos verificadores
+  let sum = 0;
+  let remainder;
+  
+  // Primeiro dígito verificador
+  for (let i = 1; i <= 9; i++) {
+    sum += parseInt(cleanCPF.substring(i - 1, i)) * (11 - i);
+  }
+  remainder = (sum * 10) % 11;
+  if (remainder === 10 || remainder === 11) remainder = 0;
+  if (remainder !== parseInt(cleanCPF.substring(9, 10))) return false;
+  
+  // Segundo dígito verificador
+  sum = 0;
+  for (let i = 1; i <= 10; i++) {
+    sum += parseInt(cleanCPF.substring(i - 1, i)) * (12 - i);
+  }
+  remainder = (sum * 10) % 11;
+  if (remainder === 10 || remainder === 11) remainder = 0;
+  if (remainder !== parseInt(cleanCPF.substring(10, 11))) return false;
+  
+  return true;
+};
+
+export const formatCPF = (cpf: string): string => {
+  const cleanCPF = cpf.replace(/\D/g, '');
+  return cleanCPF.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+};
+
+export const cleanCPF = (cpf: string): string => {
+  return cpf.replace(/\D/g, '');
+};

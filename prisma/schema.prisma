@@ -1,4 +1,4 @@
-// prisma/schema.prisma - VERSÃO CORRIGIDA PARA SUPABASE/POSTGRESQL
+// prisma/schema.prisma - VERSÃO ATUALIZADA COM CPF OBRIGATÓRIO
 generator client {
   provider = "prisma-client-js"
   binaryTargets = ["native"]
@@ -17,6 +17,7 @@ model User {
   name                 String
   email                String   @unique
   phone                String?
+  cpf                  String   @unique // CAMPO CPF OBRIGATÓRIO E ÚNICO
   passwordHash         String?
   salt                 String?
   level                Int      @default(0)

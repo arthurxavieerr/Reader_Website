@@ -1,4 +1,4 @@
-// server.js - VERSÃO COMPLETA CORRIGIDA COM NIVUSPAY OFICIAL
+// server.js - VERSÃO COMPLETA CORRIGIDA SEM PREPARED STATEMENTS + CPF IMPLEMENTADO
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -18,187 +18,165 @@ console.log('DEBUG:', process.env.DEBUG);
 console.log('DATABASE_URL existe:', !!process.env.DATABASE_URL);
 console.log('JWT_SECRET existe:', !!process.env.JWT_SECRET);
 
-// Configuração Prisma - CORRIGIDA PARA EVITAR PREPARED STATEMENTS
-let client;
-let isConnecting = false;
-
-async function initializePrisma() {
-  if (isConnecting) {
-    console.log('⏳ Conexão já em andamento...');
-    return client;
+// FUNÇÕES DE VALIDAÇÃO DE CPF
+function validateCPF(cpf) {
+  const cleanCPF = cpf.replace(/\D/g, '');
+  if (cleanCPF.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cleanCPF)) return false;
+  
+  let sum = 0;
+  let remainder;
+  
+  for (let i = 1; i <= 9; i++) {
+    sum += parseInt(cleanCPF.substring(i - 1, i)) * (11 - i);
   }
-
-  try {
-    isConnecting = true;
-
-    if (client) {
-      try {
-        await client.$disconnect();
-        console.log('🔄 Cliente anterior desconectado');
-      } catch (disconnectError) {
-        console.log('⚠️ Erro ao desconectar cliente anterior:', disconnectError.message);
-      }
-    }
-
-    client = new PrismaClient({
-      datasources: { 
-        db: { url: process.env.DATABASE_URL }
-      },
-      log: isDebug ? ['warn', 'error'] : ['error'],
-      __internal: {
-        engine: {
-          allowTriggerPanic: false
-        }
-      }
-    });
-
-    // Conectar com retry automático
-    let connected = false;
-    let attempts = 0;
-    const maxAttempts = 3;
-
-    while (!connected && attempts < maxAttempts) {
-      try {
-        await client.$connect();
-        connected = true;
-        console.log('✅ Prisma conectado ao Supabase');
-      } catch (connectError) {
-        attempts++;
-        console.log(`⚠️ Tentativa ${attempts}/${maxAttempts} falhou:`, connectError.message);
-        
-        if (attempts < maxAttempts) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        } else {
-          throw connectError;
-        }
-      }
-    }
-
-    // Teste básico usando executeRaw ao invés de queryRaw
-    try {
-      await client.$executeRaw`SELECT 1`;
-      console.log('✅ Teste de conexão bem-sucedido');
-    } catch (testError) {
-      console.log('⚠️ Teste de conexão falhou, mas continuando:', testError.message);
-    }
-
-    isConnecting = false;
-    return client;
-    
-  } catch (error) {
-    isConnecting = false;
-    console.error('❌ Erro na inicialização do Prisma:', error);
-    
-    if (client) {
-      try {
-        await client.$disconnect();
-      } catch (disconnectError) {
-        console.log('⚠️ Erro ao desconectar após falha:', disconnectError.message);
-      }
-      client = null;
-    }
-    
-    throw error;
+  remainder = (sum * 10) % 11;
+  if (remainder === 10 || remainder === 11) remainder = 0;
+  if (remainder !== parseInt(cleanCPF.substring(9, 10))) return false;
+  
+  sum = 0;
+  for (let i = 1; i <= 10; i++) {
+    sum += parseInt(cleanCPF.substring(i - 1, i)) * (12 - i);
   }
+  remainder = (sum * 10) % 11;
+  if (remainder === 10 || remainder === 11) remainder = 0;
+  if (remainder !== parseInt(cleanCPF.substring(10, 11))) return false;
+  
+  return true;
 }
 
-// Middleware de conexão - CORRIGIDO
+function cleanCPF(cpf) {
+  return cpf.replace(/\D/g, '');
+}
+
+// Configuração Prisma - VERSÃO DEFINITIVA SEM PREPARED STATEMENTS
+let client;
+let connectionCount = 0;
+
+async function createFreshPrismaClient() {
+  connectionCount++;
+  console.log(`🔄 Criando cliente Prisma #${connectionCount}`);
+  
+  return new PrismaClient({
+    datasources: { 
+      db: { url: process.env.DATABASE_URL }
+    },
+    log: isDebug ? ['warn', 'error'] : ['error']
+  });
+}
+
+async function ensureFreshConnection() {
+  // Sempre desconectar o cliente atual se existir
+  if (client) {
+    try {
+      await client.$disconnect();
+      console.log('🔄 Cliente anterior desconectado');
+    } catch (e) {
+      console.log('⚠️ Erro ao desconectar cliente anterior:', e.message);
+    }
+    client = null;
+  }
+
+  // Criar novo cliente
+  client = await createFreshPrismaClient();
+  
+  // Conectar
+  await client.$connect();
+  console.log('✅ Novo cliente Prisma conectado');
+  
+  return client;
+}
+
+// Middleware de conexão SIMPLIFICADO - SEM TESTES QUE CAUSAM PREPARED STATEMENTS
 async function ensureConnection(req, res, next) {
   try {
-    if (!client || isConnecting) {
-      console.log('🔄 Inicializando conexão...');
-      await initializePrisma();
+    // Se não há cliente, criar novo
+    if (!client) {
+      console.log('🔄 Inicializando nova conexão Prisma...');
+      await ensureFreshConnection();
     }
-
-    // Teste simples de conexão sem prepared statements problemáticos
-    try {
-      await client.user.findFirst({ take: 1 });
-      console.log('✅ Conexão Prisma verificada');
-    } catch (testError) {
-      console.log('⚠️ Teste de conexão falhou, tentando reconectar...');
-      await initializePrisma();
-    }
-
+    
     next();
   } catch (error) {
     console.error('❌ Erro de conexão:', error);
-    res.status(503).json({ 
-      success: false, 
-      error: 'Serviço temporariamente indisponível. Erro de banco de dados.',
-      code: 'DATABASE_CONNECTION_ERROR',
-      details: isDebug ? error.message : undefined
-    });
+    
+    try {
+      console.log('⚠️ Tentando reconectar...');
+      await ensureFreshConnection();
+      next();
+    } catch (retryError) {
+      console.error('❌ Erro na reconexão:', retryError);
+      res.status(503).json({ 
+        success: false, 
+        error: 'Serviço temporariamente indisponível',
+        code: 'DATABASE_CONNECTION_ERROR'
+      });
+    }
   }
 }
 
-// Configurações da Nivuspay - CORRIGIDA CONFORME DOCUMENTAÇÃO
+// Configurações da Nivuspay
 const NIVUSPAY_CONFIG = {
   BASE_URL: 'https://pay.nivuspay.com.br/api/v1',
   SECRET_KEY: process.env.NIVUSPAY_SECRET_KEY || '58466d2b-7365-498f-9038-01fe2f537d1a'
 };
 
-// Função CORRETA para criar transação PIX na Nivuspay (SEM AUTENTICAÇÃO SEPARADA)
-async function createNivusPayPixTransaction(amount, description, userId, userInfo = {}) {
+// Função para criar transação PIX na Nivuspay usando CPF real
+async function createNivusPayPixTransaction(amount, description, userId, customerData) {
   try {
-    console.log('💰 Criando transação PIX na NivusPay...');
-    
-    // Gerar ID único para a transação
+    console.log('🔄 Criando transação PIX na NivusPay...');
+
+    if (!customerData.cpf || !validateCPF(customerData.cpf)) {
+      throw new Error('CPF do cliente é obrigatório e deve ser válido');
+    }
+
+    const cleanedCPF = cleanCPF(customerData.cpf);
+    const cleanedPhone = customerData.phone ? customerData.phone.replace(/\D/g, '') : '16999999999';
+    const formattedPhone = cleanedPhone.startsWith('55') ? cleanedPhone : `55${cleanedPhone}`;
     const customId = `deposit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // Dados obrigatórios conforme documentação oficial
-    const transactionData = {
-      name: userInfo.name || 'Cliente',
-      email: userInfo.email || 'cliente@betareader.com',
-      cpf: userInfo.cpf || '12345678901', // CPF deve ter 11 dígitos
-      phone: userInfo.phone || '16999999999', // 8-12 dígitos
-      paymentMethod: 'PIX',
-      amount: amount, // Valor em centavos
+    const requestData = {
+      name: customerData.name,
+      email: customerData.email,
+      cpf: cleanedCPF,
+      phone: formattedPhone,
+      paymentMethod: "PIX",
+      amount: amount,
       traceable: true,
-      items: [
-        {
-          unitPrice: amount,
-          title: description,
-          quantity: 1,
-          tangible: false
-        }
-      ],
+      items: [{
+        unitPrice: amount,
+        title: description,
+        quantity: 1,
+        tangible: false
+      }],
       externalId: customId,
       postbackUrl: `${process.env.APP_URL || 'http://localhost:3001'}/api/webhooks/nivuspay`
     };
 
-    console.log('📤 Enviando dados para NivusPay:', JSON.stringify(transactionData, null, 2));
+    console.log('📤 Enviando para NivusPay (CPF mascarado):', {
+      ...requestData,
+      cpf: `${cleanedCPF.substring(0, 3)}***${cleanedCPF.substring(8)}`
+    });
 
     const response = await fetch(`${NIVUSPAY_CONFIG.BASE_URL}/transaction.purchase`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': NIVUSPAY_CONFIG.SECRET_KEY // Autenticação direta no header
+        'Authorization': NIVUSPAY_CONFIG.SECRET_KEY
       },
-      body: JSON.stringify(transactionData)
+      body: JSON.stringify(requestData)
     });
 
-    console.log('📊 Status da resposta NivusPay:', response.status);
-    console.log('📊 Headers da resposta:', Object.fromEntries(response.headers));
-
-    const responseText = await response.text();
-    console.log('📄 Resposta NivusPay (texto):', responseText);
-
     if (!response.ok) {
-      throw new Error(`NivusPay API Error: ${response.status} - ${responseText}`);
+      const errorText = await response.text();
+      throw new Error(`NivusPay API Error: ${response.status} - ${errorText}`);
     }
 
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch (parseError) {
-      throw new Error(`Erro ao fazer parse da resposta NivusPay: ${parseError.message}`);
-    }
+    const data = JSON.parse(await response.text());
+    console.log('✅ Transação criada na NivusPay:', data.id);
 
-    console.log('📋 Resposta NivusPay (JSON):', JSON.stringify(data, null, 2));
-
-    // Extrair dados conforme documentação
     return {
-      transactionId: data.id || data.transactionId,
+      transactionId: data.id,
       customId: data.customId || customId,
       qrCode: data.pixCode || data.pixQrCode,
       qrCodeBase64: data.pixQrCode ? `data:image/png;base64,${data.pixQrCode}` : null,
@@ -214,7 +192,7 @@ async function createNivusPayPixTransaction(amount, description, userId, userInf
   }
 }
 
-// Função CORRETA para verificar status do pagamento na Nivuspay
+// Função para verificar status do pagamento na Nivuspay
 async function checkNivusPayPaymentStatus(transactionId) {
   try {
     console.log('🔍 Verificando status do pagamento na NivusPay:', transactionId);
@@ -226,24 +204,13 @@ async function checkNivusPayPaymentStatus(transactionId) {
       }
     });
 
-    console.log('📊 Status da consulta NivusPay:', response.status);
-
     if (!response.ok) {
       throw new Error(`NivusPay Status API Error: ${response.status}`);
     }
 
-    const responseText = await response.text();
-    let data;
-    
-    try {
-      data = JSON.parse(responseText);
-    } catch (parseError) {
-      throw new Error(`Erro ao fazer parse da resposta de status: ${parseError.message}`);
-    }
-
+    const data = JSON.parse(await response.text());
     console.log('📋 Status retornado:', data.status);
 
-    // Mapear status da NivusPay para nosso sistema
     const statusMap = {
       'PENDING': 'pending',
       'APPROVED': 'approved', 
@@ -303,13 +270,12 @@ function toPublicUser(user) {
   return publicUser;
 }
 
-// Middleware de autenticação CORRIGIDO
+// Middleware de autenticação
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    console.log('❌ Token não encontrado no header Authorization');
     return res.status(401).json({ 
       success: false, 
       error: 'Token de acesso requerido',
@@ -319,7 +285,6 @@ function authenticateToken(req, res, next) {
 
   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
     if (err) {
-      console.log('❌ Token inválido:', err.message);
       return res.status(403).json({ 
         success: false, 
         error: 'Token inválido ou expirado',
@@ -327,7 +292,6 @@ function authenticateToken(req, res, next) {
       });
     }
     req.user = decoded;
-    console.log('✅ Token válido para usuário:', decoded.userId);
     next();
   });
 }
@@ -343,35 +307,25 @@ function requireAdmin(req, res, next) {
 // ROTAS BÁSICAS
 // ============================================
 app.get('/health', async (req, res) => {
-  let dbStatus = 'Unknown';
-  try {
-    if (client) {
-      await client.user.findFirst({ take: 1 });
-      dbStatus = 'Connected';
-    } else {
-      dbStatus = 'Not Initialized';
-    }
-  } catch (error) {
-    dbStatus = 'Error: ' + error.message;
-  }
-
   res.json({ 
     success: true, 
-    status: 'API Online - LOCALHOST',
+    status: 'API Online - CPF Implementado',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
-    port: process.env.PORT || 3001,
-    database: dbStatus
+    port: process.env.PORT || 3001
   });
 });
 
 app.get('/api/test', ensureConnection, async (req, res) => {
   try {
-    const userCount = await client.user.count();
+    // Usar queryRaw para evitar prepared statements
+    const result = await client.$queryRaw`SELECT COUNT(*) as count FROM users`;
+    const userCount = parseInt(result[0].count);
+    
     res.json({ 
       success: true, 
-      message: 'API funcionando!',
-      data: { userCount, connectionStatus: 'OK', timestamp: new Date().toISOString() }
+      message: 'API funcionando com CPF!',
+      data: { userCount, timestamp: new Date().toISOString() }
     });
   } catch (error) {
     console.error('❌ Erro no teste:', error);
@@ -380,26 +334,55 @@ app.get('/api/test', ensureConnection, async (req, res) => {
 });
 
 // ============================================
-// ROTAS DE AUTENTICAÇÃO
+// ROTAS DE AUTENTICAÇÃO COM CPF
 // ============================================
 app.post('/api/auth/register', ensureConnection, async (req, res) => {
   try {
-    const { name, email, phone, password } = req.body;
+    const { name, email, phone, cpf, password } = req.body;
 
-    if (!name || !email || !password) {
-      return res.status(400).json({ success: false, error: 'Nome, email e senha são obrigatórios' });
+    if (!name || !email || !cpf || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Nome, email, CPF e senha são obrigatórios' 
+      });
     }
 
     if (password.length < 6) {
-      return res.status(400).json({ success: false, error: 'Senha deve ter pelo menos 6 caracteres' });
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Senha deve ter pelo menos 6 caracteres' 
+      });
     }
 
-    const existingUser = await client.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
+    const cleanedCPF = cleanCPF(cpf);
+    if (!validateCPF(cleanedCPF)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'CPF inválido' 
+      });
+    }
 
-    if (existingUser) {
-      return res.status(409).json({ success: false, error: 'Email já está em uso' });
+    // Verificar duplicatas usando queryRaw para evitar prepared statements
+    const existingByEmail = await client.$queryRaw`
+      SELECT id FROM users WHERE email = ${email.toLowerCase()} LIMIT 1
+    `;
+    
+    if (existingByEmail.length > 0) {
+      return res.status(409).json({ 
+        success: false, 
+        error: 'Email já está em uso' 
+      });
+    }
+
+    const existingByCPF = await client.$queryRaw`
+      SELECT id FROM users WHERE cpf = ${cleanedCPF} LIMIT 1
+    `;
+
+    if (existingByCPF.length > 0) {
+      return res.status(409).json({ 
+        success: false, 
+        error: 'CPF já está em uso' 
+      });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -409,13 +392,12 @@ app.post('/api/auth/register', ensureConnection, async (req, res) => {
         name: name.trim(),
         email: email.toLowerCase().trim(),
         phone: phone?.trim() || null,
+        cpf: cleanedCPF,
         passwordHash,
         isAdmin: false,
         level: 1,
         balance: 0,
-        onboardingCompleted: false,
-        createdAt: new Date(),
-        updatedAt: new Date()
+        onboardingCompleted: false
       }
     });
 
@@ -438,12 +420,19 @@ app.post('/api/auth/login', ensureConnection, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Email e senha são obrigatórios' });
     }
 
-    const user = await client.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
+    // Buscar usuário usando queryRaw
+    const users = await client.$queryRaw`
+      SELECT * FROM users WHERE email = ${email.toLowerCase()} LIMIT 1
+    `;
 
-    if (!user || user.isSuspended) {
+    if (users.length === 0) {
       return res.status(401).json({ success: false, error: 'Email ou senha inválidos' });
+    }
+
+    const user = users[0];
+
+    if (user.isSuspended) {
+      return res.status(401).json({ success: false, error: 'Conta suspensa' });
     }
 
     const isValidPassword = await bcrypt.compare(password, user.passwordHash);
@@ -452,10 +441,12 @@ app.post('/api/auth/login', ensureConnection, async (req, res) => {
       return res.status(401).json({ success: false, error: 'Email ou senha inválidos' });
     }
 
-    await client.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date(), lastLoginIP: req.ip || 'localhost' }
-    });
+    // Atualizar último login usando executeRaw
+    await client.$executeRaw`
+      UPDATE users 
+      SET "lastLoginAt" = NOW(), "lastLoginIP" = ${req.ip || 'localhost'} 
+      WHERE id = ${user.id}
+    `;
 
     const token = generateToken(user.id, user.email, user.isAdmin);
     const publicUser = toPublicUser(user);
@@ -471,12 +462,19 @@ app.post('/api/auth/login', ensureConnection, async (req, res) => {
 
 app.get('/api/auth/me', ensureConnection, authenticateToken, async (req, res) => {
   try {
-    const user = await client.user.findUnique({
-      where: { id: req.user.userId }
-    });
+    // Buscar usuário usando queryRaw
+    const users = await client.$queryRaw`
+      SELECT * FROM users WHERE id = ${req.user.userId} LIMIT 1
+    `;
 
-    if (!user || user.isSuspended) {
+    if (users.length === 0) {
       return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
+    }
+
+    const user = users[0];
+
+    if (user.isSuspended) {
+      return res.status(404).json({ success: false, error: 'Conta suspensa' });
     }
 
     const publicUser = toPublicUser(user);
@@ -484,6 +482,66 @@ app.get('/api/auth/me', ensureConnection, authenticateToken, async (req, res) =>
 
   } catch (error) {
     console.error('❌ Auth check error:', error);
+    res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+  }
+});
+
+// Atualização de perfil com CPF
+app.patch('/api/auth/update-profile', ensureConnection, authenticateToken, async (req, res) => {
+  try {
+    const { name, phone, cpf } = req.body;
+    const userId = req.user.userId;
+
+    if (name !== undefined && !name.trim()) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Nome não pode estar vazio' 
+      });
+    }
+
+    if (cpf !== undefined && cpf) {
+      const cleanedCPF = cleanCPF(cpf);
+      if (!validateCPF(cleanedCPF)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'CPF inválido' 
+        });
+      }
+
+      // Verificar se CPF já está em uso
+      const existingCPF = await client.$queryRaw`
+        SELECT id FROM users WHERE cpf = ${cleanedCPF} AND id != ${userId} LIMIT 1
+      `;
+
+      if (existingCPF.length > 0) {
+        return res.status(409).json({ 
+          success: false, 
+          error: 'CPF já está em uso por outro usuário' 
+        });
+      }
+    }
+
+    // Executar usando queryRaw com valores seguros
+    const updatedUsers = await client.$queryRaw`
+      UPDATE users 
+      SET 
+        name = COALESCE(${name?.trim() || null}, name),
+        phone = COALESCE(${phone?.trim() || null}, phone),
+        cpf = COALESCE(${cpf ? cleanCPF(cpf) : null}, cpf),
+        "updatedAt" = NOW()
+      WHERE id = ${userId}
+      RETURNING *
+    `;
+
+    if (updatedUsers.length === 0) {
+      return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
+    }
+
+    const publicUser = toPublicUser(updatedUsers[0]);
+    res.json({ success: true, data: { user: publicUser } });
+
+  } catch (error) {
+    console.error('❌ Update profile error:', error);
     res.status(500).json({ success: false, error: 'Erro interno do servidor' });
   }
 });
@@ -557,75 +615,64 @@ app.get('/api/books/:id', ensureConnection, async (req, res) => {
 });
 
 // ============================================
-// ROTAS DE PAGAMENTO - DEPÓSITOS
+// ROTAS DE DEPÓSITO COM CPF
 // ============================================
-
-// POST /api/payments/deposit - Criar depósito via PIX
 app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (req, res) => {
-  console.log('📥 Iniciando criação de depósito...');
-  console.log('User ID:', req.user?.userId);
-  console.log('Request body:', req.body);
-  
   try {
-    const { amount } = req.body; // valor em centavos
+    const { amount } = req.body;
     const userId = req.user.userId;
 
-    console.log('🔍 Validando parâmetros:', { amount, userId });
-
-    // Validar valores específicos: R$ 19,90 ou R$ 39,90
     if (amount !== 1990 && amount !== 3990) {
-      console.log('❌ Valor inválido:', amount);
       return res.status(400).json({ 
         success: false, 
-        error: 'Apenas os valores R$ 19,90 (taxa de saque) ou R$ 39,90 (plano premium) são permitidos' 
+        error: 'Apenas os valores R$ 19,90 ou R$ 39,90 são permitidos' 
       });
     }
 
-    console.log('🔍 Buscando usuário...');
-    const user = await client.user.findUnique({ where: { id: userId } });
-    console.log('👤 Usuário encontrado:', !!user);
-    
-    if (!user) {
+    // Buscar usuário usando queryRaw
+    const users = await client.$queryRaw`
+      SELECT * FROM users WHERE id = ${userId} LIMIT 1
+    `;
+
+    if (users.length === 0) {
       return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
     }
 
-    // Verificar se há depósito pendente
-    console.log('🔍 Verificando depósitos pendentes...');
-    const pendingDeposit = await client.transaction.findFirst({
-      where: {
-        userId,
-        type: 'DEPOSIT',
-        status: 'PENDING'
-      }
-    });
+    const user = users[0];
 
-    if (pendingDeposit) {
-      console.log('⚠️ Depósito pendente encontrado:', pendingDeposit.id);
+    if (!user.cpf) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'CPF é obrigatório para realizar depósitos. Atualize seu perfil.' 
+      });
+    }
+
+    // Verificar depósitos pendentes usando queryRaw
+    const pendingDeposits = await client.$queryRaw`
+      SELECT id FROM transactions 
+      WHERE "userId" = ${userId} AND type = 'DEPOSIT' AND status = 'PENDING' 
+      LIMIT 1
+    `;
+
+    if (pendingDeposits.length > 0) {
       return res.status(400).json({
         success: false,
         error: 'Você já possui um depósito pendente'
       });
     }
 
-    console.log('✅ Nenhum depósito pendente encontrado');
-
-    // Determinar o tipo de depósito
     const depositType = amount === 1990 ? 'Taxa de Saque' : 'Plano Premium';
     const description = `${depositType} - ${user.name || 'Cliente'}`;
 
-    console.log('💰 Criando transação PIX na Nivuspay...');
-    
-    // Criar transação PIX na Nivuspay - CHAMADA CORRIGIDA
+    // Criar transação PIX na Nivuspay
     const nivusPayData = await createNivusPayPixTransaction(amount, description, userId, {
       name: user.name,
       email: user.email,
-      cpf: '12345678901', // Você pode adicionar CPF ao modelo User se quiser
+      cpf: user.cpf,
       phone: user.phone || '16999999999'
     });
 
-    console.log('💾 Salvando transação no banco...');
-    
-    // Salvar transação no banco
+    // Salvar transação
     const transaction = await client.transaction.create({
       data: {
         userId,
@@ -645,7 +692,7 @@ app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (re
       }
     });
 
-    console.log('✅ Depósito criado com sucesso:', transaction.id);
+    console.log('✅ Depósito criado:', transaction.id);
 
     res.json({
       success: true,
@@ -661,12 +708,7 @@ app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (re
     });
 
   } catch (error) {
-    console.error('❌ Erro detalhado na criação de depósito:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name
-    });
-    
+    console.error('❌ Erro no depósito:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Erro interno do servidor: ' + error.message 
@@ -674,13 +716,12 @@ app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (re
   }
 });
 
-// GET /api/payments/deposit/:id/status - Verificar status do depósito
+// Verificar status do depósito
 app.get('/api/payments/deposit/:id/status', ensureConnection, authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.userId;
 
-    // Buscar transação no banco
     const transaction = await client.transaction.findFirst({
       where: { 
         id, 
@@ -696,7 +737,6 @@ app.get('/api/payments/deposit/:id/status', ensureConnection, authenticateToken,
       });
     }
 
-    // Se já está processada, retornar status atual
     if (transaction.status !== 'PENDING') {
       return res.json({
         success: true,
@@ -711,26 +751,21 @@ app.get('/api/payments/deposit/:id/status', ensureConnection, authenticateToken,
     }
 
     // Verificar status na Nivuspay
-    let nivusStatus = 'pending';
     let newStatus = transaction.status;
 
     if (transaction.nivusPayTransactionId) {
       try {
-        nivusStatus = await checkNivusPayPaymentStatus(transaction.nivusPayTransactionId);
+        const nivusStatus = await checkNivusPayPaymentStatus(transaction.nivusPayTransactionId);
         
-        // Mapear status da Nivuspay para nosso sistema
         if (nivusStatus === 'approved') {
           newStatus = 'COMPLETED';
           
-          // Processar pagamento baseado no valor
           if (transaction.amount === 1990) {
-            // Taxa de saque - adicionar ao saldo
             await client.user.update({
               where: { id: userId },
               data: { balance: { increment: transaction.amount } }
             });
           } else if (transaction.amount === 3990) {
-            // Plano premium - upgradar usuário
             await client.user.update({
               where: { id: userId },
               data: { 
@@ -743,7 +778,6 @@ app.get('/api/payments/deposit/:id/status', ensureConnection, authenticateToken,
           newStatus = 'FAILED';
         }
 
-        // Atualizar status da transação se mudou
         if (newStatus !== transaction.status) {
           await client.transaction.update({
             where: { id: transaction.id },
@@ -755,8 +789,7 @@ app.get('/api/payments/deposit/:id/status', ensureConnection, authenticateToken,
           });
         }
       } catch (statusError) {
-        console.error('❌ Error checking Nivuspay status:', statusError);
-        // Continue sem falhar a requisição
+        console.error('❌ Erro ao verificar status:', statusError);
       }
     }
 
@@ -780,7 +813,7 @@ app.get('/api/payments/deposit/:id/status', ensureConnection, authenticateToken,
   }
 });
 
-// GET /api/payments/deposits - Listar depósitos do usuário
+// Listar depósitos
 app.get('/api/payments/deposits', ensureConnection, authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -829,10 +862,8 @@ app.get('/api/payments/deposits', ensureConnection, authenticateToken, async (re
 });
 
 // ============================================
-// ROTAS DE PAGAMENTO - SAQUES
+// ROTAS DE SAQUE
 // ============================================
-
-// POST /api/payments/withdrawal - Solicitar saque
 app.post('/api/payments/withdrawal', ensureConnection, authenticateToken, async (req, res) => {
   try {
     const { amount, pixKey, pixKeyType } = req.body;
@@ -850,7 +881,6 @@ app.post('/api/payments/withdrawal', ensureConnection, authenticateToken, async 
       return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
     }
 
-    // Verificar se usuário é premium ou se precisa pagar taxa
     if (user.planType !== 'PREMIUM') {
       return res.status(400).json({
         success: false,
@@ -860,8 +890,7 @@ app.post('/api/payments/withdrawal', ensureConnection, authenticateToken, async 
       });
     }
 
-    // Verificar limites baseados no plano
-    const minWithdrawal = user.planType === 'PREMIUM' ? 5000 : 12000; // R$ 50 ou R$ 120
+    const minWithdrawal = user.planType === 'PREMIUM' ? 5000 : 12000;
     
     if (amount < minWithdrawal) {
       return res.status(400).json({
@@ -877,7 +906,6 @@ app.post('/api/payments/withdrawal', ensureConnection, authenticateToken, async 
       });
     }
 
-    // Verificar se há saques pendentes
     const pendingWithdrawal = await client.transaction.findFirst({
       where: {
         userId,
@@ -893,7 +921,6 @@ app.post('/api/payments/withdrawal', ensureConnection, authenticateToken, async 
       });
     }
 
-    // Criar transação de saque
     const transaction = await client.transaction.create({
       data: {
         userId,
@@ -911,7 +938,6 @@ app.post('/api/payments/withdrawal', ensureConnection, authenticateToken, async 
       }
     });
 
-    // Debitar do saldo imediatamente (reservar valor)
     await client.user.update({
       where: { id: userId },
       data: { balance: { decrement: amount } }
@@ -933,7 +959,6 @@ app.post('/api/payments/withdrawal', ensureConnection, authenticateToken, async 
   }
 });
 
-// GET /api/payments/withdrawals - Listar saques do usuário
 app.get('/api/payments/withdrawals', ensureConnection, authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -968,7 +993,7 @@ app.get('/api/payments/withdrawals', ensureConnection, authenticateToken, async 
       data: {
         withdrawals: withdrawals.map(w => ({
           ...w,
-          pixKey: w.pixKey ? `***${w.pixKey.slice(-4)}` : null // Mascarar chave PIX
+          pixKey: w.pixKey ? `***${w.pixKey.slice(-4)}` : null
         })),
         total,
         page: parseInt(page),
@@ -988,10 +1013,8 @@ app.get('/api/payments/withdrawals', ensureConnection, authenticateToken, async 
 app.post('/api/webhooks/nivuspay', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
     const payload = JSON.parse(req.body.toString());
-    
     console.log('📥 Nivuspay Webhook received:', payload);
 
-    // Validar payload básico
     if (!payload.paymentId && !payload.customId) {
       console.log('❌ Invalid webhook payload');
       return res.status(400).json({ error: 'Invalid payload' });
@@ -999,7 +1022,6 @@ app.post('/api/webhooks/nivuspay', express.raw({ type: 'application/json' }), as
 
     const { paymentId, customId, status } = payload;
 
-    // Buscar transação pelo customId ou paymentId
     const transaction = await client.transaction.findFirst({
       where: { 
         OR: [
@@ -1017,7 +1039,6 @@ app.post('/api/webhooks/nivuspay', express.raw({ type: 'application/json' }), as
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
-    // Verificar se já foi processada
     if (transaction.status !== 'PENDING') {
       console.log('✅ Transaction already processed:', transaction.id);
       return res.json({ success: true, message: 'Already processed' });
@@ -1026,7 +1047,6 @@ app.post('/api/webhooks/nivuspay', express.raw({ type: 'application/json' }), as
     let newStatus = 'PENDING';
     let shouldUpdateUser = false;
 
-    // Mapear status da Nivuspay conforme documentação
     switch (status) {
       case 'APPROVED':
         newStatus = 'COMPLETED';
@@ -1040,7 +1060,6 @@ app.post('/api/webhooks/nivuspay', express.raw({ type: 'application/json' }), as
         newStatus = 'PENDING';
     }
 
-    // Atualizar transação
     await client.transaction.update({
       where: { id: transaction.id },
       data: {
@@ -1050,10 +1069,8 @@ app.post('/api/webhooks/nivuspay', express.raw({ type: 'application/json' }), as
       }
     });
 
-    // Processar pagamento se aprovado
     if (shouldUpdateUser) {
       if (transaction.amount === 1990) {
-        // Taxa de saque - adicionar ao saldo
         await client.user.update({
           where: { id: transaction.userId },
           data: { 
@@ -1062,7 +1079,6 @@ app.post('/api/webhooks/nivuspay', express.raw({ type: 'application/json' }), as
         });
         console.log(`✅ Taxa de saque paga: R$ ${(transaction.amount / 100).toFixed(2)} for user ${transaction.user.email}`);
       } else if (transaction.amount === 3990) {
-        // Plano premium - upgradar usuário e adicionar saldo
         await client.user.update({
           where: { id: transaction.userId },
           data: { 
@@ -1083,10 +1099,8 @@ app.post('/api/webhooks/nivuspay', express.raw({ type: 'application/json' }), as
 });
 
 // ============================================
-// ROTAS ADMIN - GERENCIAR TRANSAÇÕES
+// ROTAS ADMIN
 // ============================================
-
-// GET /api/admin/withdrawals - Listar todos os saques para admin
 app.get('/api/admin/withdrawals', ensureConnection, authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 20, status = 'all' } = req.query;
@@ -1128,11 +1142,10 @@ app.get('/api/admin/withdrawals', ensureConnection, authenticateToken, requireAd
   }
 });
 
-// PATCH /api/admin/withdrawals/:id - Processar saque
 app.patch('/api/admin/withdrawals/:id', ensureConnection, authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { action, notes } = req.body; // action: 'approve' | 'reject'
+    const { action, notes } = req.body;
     const adminId = req.user.userId;
 
     if (!['approve', 'reject'].includes(action)) {
@@ -1157,7 +1170,6 @@ app.patch('/api/admin/withdrawals/:id', ensureConnection, authenticateToken, req
       newStatus = 'COMPLETED';
     } else {
       newStatus = 'REJECTED';
-      // Devolver valor ao saldo do usuário
       await client.user.update({
         where: { id: transaction.userId },
         data: { balance: { increment: transaction.amount } }
@@ -1189,7 +1201,6 @@ app.patch('/api/admin/withdrawals/:id', ensureConnection, authenticateToken, req
   }
 });
 
-// GET /api/admin/deposits - Listar todos os depósitos para admin
 app.get('/api/admin/deposits', ensureConnection, authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 20, status = 'all' } = req.query;
@@ -1232,7 +1243,7 @@ app.get('/api/admin/deposits', ensureConnection, authenticateToken, requireAdmin
 });
 
 // ============================================
-// FALLBACK E INICIALIZAÇÃO
+// FALLBACK
 // ============================================
 app.get('*', (req, res) => {
   const indexPath = path.join(__dirname, 'dist', 'index.html');
@@ -1246,6 +1257,7 @@ app.get('*', (req, res) => {
         availableEndpoints: [
           'GET /health', 'GET /api/test',
           'POST /api/auth/register', 'POST /api/auth/login', 'GET /api/auth/me',
+          'PATCH /api/auth/update-profile',
           'GET /api/books', 'GET /api/books/:id',
           'POST /api/payments/deposit', 'GET /api/payments/deposit/:id/status',
           'GET /api/payments/deposits',
@@ -1257,7 +1269,7 @@ app.get('*', (req, res) => {
       });
     }
   } catch (error) {
-    res.status(404).json({ success: false, error: 'SPA não disponível - apenas API' });
+    res.status(404).json({ success: false, error: 'SPA não disponível' });
   }
 });
 
@@ -1265,38 +1277,28 @@ const PORT = process.env.PORT || 3001;
 
 app.listen(PORT, async () => {
   console.log('🎯 ====================================');
-  console.log(`🚀 SERVIDOR INICIADO`);
+  console.log(`🚀 SERVIDOR INICIADO - CPF IMPLEMENTADO (SEM PREPARED STATEMENTS)`);
   console.log(`📍 Porta: ${PORT}`);
   console.log(`🌍 Ambiente: ${process.env.NODE_ENV}`);
-  console.log(`🔗 Health Check: http://localhost:${PORT}/health`);
-  console.log(`🔗 API Test: http://localhost:${PORT}/api/test`);
-  console.log(`💰 Depósitos: POST http://localhost:${PORT}/api/payments/deposit`);
-  console.log(`💸 Saques: POST http://localhost:${PORT}/api/payments/withdrawal`);
-  console.log(`🔗 Frontend URL: ${process.env.VITE_API_URL || 'N/A'}`);
+  console.log(`🆔 CPF: Obrigatório e funcional`);
+  console.log(`🔗 Health: http://localhost:${PORT}/health`);
+  console.log(`🔗 Test: http://localhost:${PORT}/api/test`);
   console.log('🎯 ====================================');
   
-  // Tentar inicializar Prisma se ainda não foi
-  if (!client) {
-    console.log('🔄 Inicializando Prisma...');
-    try {
-      await initializePrisma();
-      console.log('✅ Prisma inicializado no startup');
-    } catch (error) {
-      console.error('❌ Erro na inicialização do Prisma no startup:', error);
-    }
+  // Inicializar Prisma
+  try {
+    await ensureFreshConnection();
+    console.log('🎉 Servidor pronto! CPF funcionando sem prepared statements.');
+  } catch (error) {
+    console.error('❌ Erro na inicialização:', error);
   }
-  
-  console.log('🎉 Servidor iniciado! Sistema de pagamentos NivusPay ativo.');
 });
 
 // Graceful Shutdown
 process.on('SIGINT', async () => {
-  console.log('🔌 Encerrando servidor graciosamente...');
+  console.log('🔌 Encerrando servidor...');
   try {
-    if (client) {
-      await client.$disconnect();
-    }
-    console.log('✅ Banco desconectado');
+    if (client) await client.$disconnect();
   } catch (error) {
     console.error('❌ Erro ao desconectar:', error);
   }
@@ -1306,10 +1308,7 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
   console.log('🔌 Encerrando servidor (SIGTERM)...');
   try {
-    if (client) {
-      await client.$disconnect();
-    }
-    console.log('✅ Banco desconectado');
+    if (client) await client.$disconnect();
   } catch (error) {
     console.error('❌ Erro ao desconectar:', error);
   }
@@ -1319,9 +1318,7 @@ process.on('SIGTERM', async () => {
 process.on('uncaughtException', async (error) => {
   console.error('💥 Erro não capturado:', error);
   try {
-    if (client) {
-      await client.$disconnect();
-    }
+    if (client) await client.$disconnect();
   } catch (e) {
     console.error('❌ Erro ao desconectar após exceção:', e);
   }
@@ -1331,11 +1328,11 @@ process.on('uncaughtException', async (error) => {
 process.on('unhandledRejection', async (reason, promise) => {
   console.error('💥 Promise rejeitada não tratada:', reason);
   try {
-    if (client) {
-      await client.$disconnect();
-    }
+    if (client) await client.$disconnect();
   } catch (e) {
     console.error('❌ Erro ao desconectar após rejeição:', e);
   }
   process.exit(1);
 });
+
+module.exports = { validateCPF, cleanCPF };
