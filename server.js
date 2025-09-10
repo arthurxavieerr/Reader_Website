@@ -1,4 +1,4 @@
-// server.js - VERSÃO COMPLETA CORRIGIDA PARA SUPABASE
+// server.js - VERSÃO CORRIGIDA PARA RESOLVER PROBLEMAS DE PREPARED STATEMENTS E AUTENTICAÇÃO
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -18,50 +18,120 @@ console.log('DEBUG:', process.env.DEBUG);
 console.log('DATABASE_URL existe:', !!process.env.DATABASE_URL);
 console.log('JWT_SECRET existe:', !!process.env.JWT_SECRET);
 
-// Configuração Prisma - CORRIGIDO
+// Configuração Prisma - CORRIGIDA PARA EVITAR PREPARED STATEMENTS
 let client;
+let isConnecting = false;
 
 async function initializePrisma() {
-  try {
-    if (!client) {
-      client = new PrismaClient({
-        datasources: { 
-          db: { url: process.env.DATABASE_URL }
-        },
-        log: isDebug ? ['query', 'info', 'warn', 'error'] : ['error']
-      });
-
-      // Conectar explicitamente
-      await client.$connect();
-      console.log('✅ Prisma conectado ao Supabase');
-
-      // Teste básico de conexão
-      const result = await client.$queryRaw`SELECT 1 as test`;
-      console.log('✅ Teste de conexão bem-sucedido:', result);
-    }
-    
+  if (isConnecting) {
+    console.log('⏳ Conexão já em andamento...');
     return client;
+  }
+
+  try {
+    isConnecting = true;
+
+    if (client) {
+      try {
+        await client.$disconnect();
+        console.log('🔄 Cliente anterior desconectado');
+      } catch (disconnectError) {
+        console.log('⚠️ Erro ao desconectar cliente anterior:', disconnectError.message);
+      }
+    }
+
+    client = new PrismaClient({
+      datasources: { 
+        db: { url: process.env.DATABASE_URL }
+      },
+      log: isDebug ? ['warn', 'error'] : ['error'], // Reduzir logs para evitar spam
+      // Configurações para evitar problemas de prepared statements
+      __internal: {
+        engine: {
+          allowTriggerPanic: false
+        }
+      }
+    });
+
+    // Conectar com retry automático
+    let connected = false;
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (!connected && attempts < maxAttempts) {
+      try {
+        await client.$connect();
+        connected = true;
+        console.log('✅ Prisma conectado ao Supabase');
+      } catch (connectError) {
+        attempts++;
+        console.log(`⚠️ Tentativa ${attempts}/${maxAttempts} falhou:`, connectError.message);
+        
+        if (attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        } else {
+          throw connectError;
+        }
+      }
+    }
+
+    // Teste básico usando executeRaw ao invés de queryRaw para evitar prepared statements
+    try {
+      await client.$executeRaw`SELECT 1`;
+      console.log('✅ Teste de conexão bem-sucedido');
+    } catch (testError) {
+      console.log('⚠️ Teste de conexão falhou, mas continuando:', testError.message);
+    }
+
+    isConnecting = false;
+    return client;
+    
   } catch (error) {
+    isConnecting = false;
     console.error('❌ Erro na inicialização do Prisma:', error);
     
-    // Se falhar, tentar novamente em 5 segundos
-    console.log('🔄 Tentando reconectar em 5 segundos...');
-    setTimeout(async () => {
+    // Limpar cliente em caso de erro
+    if (client) {
       try {
-        await initializePrisma();
-      } catch (retryError) {
-        console.error('❌ Falha na reconexão:', retryError);
+        await client.$disconnect();
+      } catch (disconnectError) {
+        console.log('⚠️ Erro ao desconectar após falha:', disconnectError.message);
       }
-    }, 5000);
+      client = null;
+    }
     
     throw error;
   }
 }
 
-// Inicializar Prisma na inicialização do servidor
-initializePrisma().catch(error => {
-  console.error('❌ Falha crítica na inicialização do banco:', error);
-});
+// Middleware de conexão - CORRIGIDO
+async function ensureConnection(req, res, next) {
+  try {
+    if (!client || isConnecting) {
+      console.log('🔄 Inicializando conexão...');
+      await initializePrisma();
+    }
+
+    // Teste simples de conexão sem prepared statements problemáticos
+    try {
+      await client.user.findFirst({ take: 1 });
+      console.log('✅ Conexão Prisma verificada');
+    } catch (testError) {
+      console.log('⚠️ Teste de conexão falhou, tentando reconectar...');
+      await initializePrisma();
+    }
+
+    next();
+  } catch (error) {
+    console.error('❌ Erro de conexão:', error);
+    res.status(503).json({ 
+      success: false, 
+      error: 'Serviço temporariamente indisponível. Erro de banco de dados.',
+      code: 'DATABASE_CONNECTION_ERROR',
+      details: isDebug ? error.message : undefined
+    });
+  }
+}
 
 // Configurações da Nivuspay
 const NIVUSPAY_CONFIG = {
@@ -175,43 +245,6 @@ async function checkNivusPayPaymentStatus(transactionId) {
   }
 }
 
-// Middleware de conexão - CORRIGIDO
-async function ensureConnection(req, res, next) {
-  try {
-    console.log('🔍 Verificando conexão Prisma...');
-    
-    if (!client) {
-      console.log('🔄 Cliente não existe, inicializando...');
-      await initializePrisma();
-    }
-
-    // Teste de conexão
-    await client.$queryRaw`SELECT 1`;
-    console.log('✅ Conexão Prisma verificada');
-    next();
-  } catch (error) {
-    console.error('❌ Erro de conexão:', error);
-    
-    try {
-      console.log('🔄 Tentando reconectar...');
-      if (client) {
-        await client.$disconnect();
-      }
-      await initializePrisma();
-      console.log('✅ Reconexão bem-sucedida');
-      next();
-    } catch (reconnectError) {
-      console.error('❌ Erro na reconexão:', reconnectError);
-      res.status(503).json({ 
-        success: false, 
-        error: 'Serviço temporariamente indisponível. Erro de banco de dados.',
-        code: 'DATABASE_CONNECTION_ERROR',
-        details: isDebug ? reconnectError.message : undefined
-      });
-    }
-  }
-}
-
 // Middlewares básicos
 app.use(cors({
   origin: process.env.NODE_ENV === 'development' 
@@ -255,19 +288,31 @@ function toPublicUser(user) {
   return publicUser;
 }
 
+// Middleware de autenticação CORRIGIDO
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    return res.status(401).json({ success: false, error: 'Token de acesso requerido' });
+    console.log('❌ Token não encontrado no header Authorization');
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Token de acesso requerido',
+      code: 'NO_TOKEN'
+    });
   }
 
   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
     if (err) {
-      return res.status(403).json({ success: false, error: 'Token inválido' });
+      console.log('❌ Token inválido:', err.message);
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Token inválido ou expirado',
+        code: 'INVALID_TOKEN'
+      });
     }
     req.user = decoded;
+    console.log('✅ Token válido para usuário:', decoded.userId);
     next();
   });
 }
@@ -286,7 +331,7 @@ app.get('/health', async (req, res) => {
   let dbStatus = 'Unknown';
   try {
     if (client) {
-      await client.$queryRaw`SELECT 1`;
+      await client.user.findFirst({ take: 1 });
       dbStatus = 'Connected';
     } else {
       dbStatus = 'Not Initialized';
@@ -400,6 +445,7 @@ app.post('/api/auth/login', ensureConnection, async (req, res) => {
     const token = generateToken(user.id, user.email, user.isAdmin);
     const publicUser = toPublicUser(user);
 
+    console.log('✅ Login realizado com sucesso para:', user.email);
     res.json({ success: true, data: { user: publicUser, token } });
 
   } catch (error) {
@@ -529,6 +575,7 @@ app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (re
     }
 
     // Verificar se há depósito pendente
+    console.log('🔍 Verificando depósitos pendentes...');
     const pendingDeposit = await client.transaction.findFirst({
       where: {
         userId,
@@ -538,11 +585,14 @@ app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (re
     });
 
     if (pendingDeposit) {
+      console.log('⚠️ Depósito pendente encontrado:', pendingDeposit.id);
       return res.status(400).json({
         success: false,
         error: 'Você já possui um depósito pendente'
       });
     }
+
+    console.log('✅ Nenhum depósito pendente encontrado');
 
     // Determinar o tipo de depósito
     const depositType = amount === 1990 ? 'Taxa de Saque' : 'Plano Premium';
