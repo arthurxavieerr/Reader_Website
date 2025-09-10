@@ -1,4 +1,4 @@
-// server.js - VERSÃO COMPLETA COM SISTEMA DE PAGAMENTOS NIVUSPAY
+// server.js - VERSÃO COMPLETA CORRIGIDA PARA SUPABASE
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -11,22 +11,57 @@ const { PrismaClient } = require('@prisma/client');
 const app = express();
 const isDebug = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
 
-// Configuração Prisma
-let prisma;
-function getPrismaClient() {
-  if (!prisma) {
-    prisma = new PrismaClient({
-      datasources: { db: { url: process.env.DATABASE_URL } },
-      log: isDebug ? ['info', 'warn', 'error'] : ['error', 'warn'],
-    });
-    prisma.$connect()
-      .then(() => console.log('✅ Prisma conectado ao banco'))
-      .catch((error) => console.error('❌ Erro na conexão inicial do Prisma:', error));
+// Debug de inicialização
+console.log('🔍 Debug inicial:');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('DEBUG:', process.env.DEBUG);
+console.log('DATABASE_URL existe:', !!process.env.DATABASE_URL);
+console.log('JWT_SECRET existe:', !!process.env.JWT_SECRET);
+
+// Configuração Prisma - CORRIGIDO
+let client;
+
+async function initializePrisma() {
+  try {
+    if (!client) {
+      client = new PrismaClient({
+        datasources: { 
+          db: { url: process.env.DATABASE_URL }
+        },
+        log: isDebug ? ['query', 'info', 'warn', 'error'] : ['error']
+      });
+
+      // Conectar explicitamente
+      await client.$connect();
+      console.log('✅ Prisma conectado ao Supabase');
+
+      // Teste básico de conexão
+      const result = await client.$queryRaw`SELECT 1 as test`;
+      console.log('✅ Teste de conexão bem-sucedido:', result);
+    }
+    
+    return client;
+  } catch (error) {
+    console.error('❌ Erro na inicialização do Prisma:', error);
+    
+    // Se falhar, tentar novamente em 5 segundos
+    console.log('🔄 Tentando reconectar em 5 segundos...');
+    setTimeout(async () => {
+      try {
+        await initializePrisma();
+      } catch (retryError) {
+        console.error('❌ Falha na reconexão:', retryError);
+      }
+    }, 5000);
+    
+    throw error;
   }
-  return prisma;
 }
 
-const client = getPrismaClient();
+// Inicializar Prisma na inicialização do servidor
+initializePrisma().catch(error => {
+  console.error('❌ Falha crítica na inicialização do banco:', error);
+});
 
 // Configurações da Nivuspay
 const NIVUSPAY_CONFIG = {
@@ -140,23 +175,38 @@ async function checkNivusPayPaymentStatus(transactionId) {
   }
 }
 
-// Middleware de conexão
+// Middleware de conexão - CORRIGIDO
 async function ensureConnection(req, res, next) {
   try {
+    console.log('🔍 Verificando conexão Prisma...');
+    
+    if (!client) {
+      console.log('🔄 Cliente não existe, inicializando...');
+      await initializePrisma();
+    }
+
+    // Teste de conexão
     await client.$queryRaw`SELECT 1`;
+    console.log('✅ Conexão Prisma verificada');
     next();
   } catch (error) {
-    console.error('❌ Erro de conexão:', error.message);
+    console.error('❌ Erro de conexão:', error);
+    
     try {
-      await client.$disconnect();
-      await client.$connect();
+      console.log('🔄 Tentando reconectar...');
+      if (client) {
+        await client.$disconnect();
+      }
+      await initializePrisma();
+      console.log('✅ Reconexão bem-sucedida');
       next();
     } catch (reconnectError) {
-      console.error('❌ Erro na reconexão:', reconnectError.message);
+      console.error('❌ Erro na reconexão:', reconnectError);
       res.status(503).json({ 
         success: false, 
-        error: 'Serviço temporariamente indisponível.',
-        code: 'DATABASE_CONNECTION_ERROR'
+        error: 'Serviço temporariamente indisponível. Erro de banco de dados.',
+        code: 'DATABASE_CONNECTION_ERROR',
+        details: isDebug ? reconnectError.message : undefined
       });
     }
   }
@@ -232,14 +282,26 @@ function requireAdmin(req, res, next) {
 // ============================================
 // ROTAS BÁSICAS
 // ============================================
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
+  let dbStatus = 'Unknown';
+  try {
+    if (client) {
+      await client.$queryRaw`SELECT 1`;
+      dbStatus = 'Connected';
+    } else {
+      dbStatus = 'Not Initialized';
+    }
+  } catch (error) {
+    dbStatus = 'Error: ' + error.message;
+  }
+
   res.json({ 
     success: true, 
     status: 'API Online - LOCALHOST',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
-    port: process.env.PORT,
-    database: 'Connected'
+    port: process.env.PORT || 3001,
+    database: dbStatus
   });
 });
 
@@ -439,19 +501,29 @@ app.get('/api/books/:id', ensureConnection, async (req, res) => {
 
 // POST /api/payments/deposit - Criar depósito via PIX
 app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (req, res) => {
+  console.log('📥 Iniciando criação de depósito...');
+  console.log('User ID:', req.user?.userId);
+  console.log('Request body:', req.body);
+  
   try {
     const { amount } = req.body; // valor em centavos
     const userId = req.user.userId;
 
+    console.log('🔍 Validando parâmetros:', { amount, userId });
+
     // Validar valores específicos: R$ 19,90 ou R$ 39,90
     if (amount !== 1990 && amount !== 3990) {
+      console.log('❌ Valor inválido:', amount);
       return res.status(400).json({ 
         success: false, 
         error: 'Apenas os valores R$ 19,90 (taxa de saque) ou R$ 39,90 (plano premium) são permitidos' 
       });
     }
 
+    console.log('🔍 Buscando usuário...');
     const user = await client.user.findUnique({ where: { id: userId } });
+    console.log('👤 Usuário encontrado:', !!user);
+    
     if (!user) {
       return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
     }
@@ -476,9 +548,13 @@ app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (re
     const depositType = amount === 1990 ? 'Taxa de Saque' : 'Plano Premium';
     const description = `${depositType} - ${user.name || 'Cliente'}`;
 
+    console.log('💰 Criando transação PIX na Nivuspay...');
+    
     // Criar transação PIX na Nivuspay
     const nivusPayData = await createNivusPayPixTransaction(amount, description, userId);
 
+    console.log('💾 Salvando transação no banco...');
+    
     // Salvar transação no banco
     const transaction = await client.transaction.create({
       data: {
@@ -499,6 +575,8 @@ app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (re
       }
     });
 
+    console.log('✅ Depósito criado com sucesso:', transaction.id);
+
     res.json({
       success: true,
       data: {
@@ -513,7 +591,12 @@ app.post('/api/payments/deposit', ensureConnection, authenticateToken, async (re
     });
 
   } catch (error) {
-    console.error('❌ Deposit creation error:', error);
+    console.error('❌ Erro detalhado na criação de depósito:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    
     res.status(500).json({ 
       success: false, 
       error: 'Erro interno do servidor: ' + error.message 
@@ -1106,9 +1189,9 @@ app.get('*', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log('🎯 ====================================');
-  console.log(`🚀 SERVIDOR LOCALHOST INICIADO`);
+  console.log(`🚀 SERVIDOR INICIADO`);
   console.log(`📍 Porta: ${PORT}`);
   console.log(`🌍 Ambiente: ${process.env.NODE_ENV}`);
   console.log(`🔗 Health Check: http://localhost:${PORT}/health`);
@@ -1117,6 +1200,18 @@ app.listen(PORT, () => {
   console.log(`💸 Saques: POST http://localhost:${PORT}/api/payments/withdrawal`);
   console.log(`🔗 Frontend URL: ${process.env.VITE_API_URL || 'N/A'}`);
   console.log('🎯 ====================================');
+  
+  // Tentar inicializar Prisma se ainda não foi
+  if (!client) {
+    console.log('🔄 Inicializando Prisma...');
+    try {
+      await initializePrisma();
+      console.log('✅ Prisma inicializado no startup');
+    } catch (error) {
+      console.error('❌ Erro na inicialização do Prisma no startup:', error);
+    }
+  }
+  
   console.log('🎉 Servidor iniciado! Sistema de pagamentos NivusPay ativo.');
 });
 
@@ -1124,7 +1219,9 @@ app.listen(PORT, () => {
 process.on('SIGINT', async () => {
   console.log('🔌 Encerrando servidor graciosamente...');
   try {
-    await client.$disconnect();
+    if (client) {
+      await client.$disconnect();
+    }
     console.log('✅ Banco desconectado');
   } catch (error) {
     console.error('❌ Erro ao desconectar:', error);
@@ -1135,7 +1232,9 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
   console.log('🔌 Encerrando servidor (SIGTERM)...');
   try {
-    await client.$disconnect();
+    if (client) {
+      await client.$disconnect();
+    }
     console.log('✅ Banco desconectado');
   } catch (error) {
     console.error('❌ Erro ao desconectar:', error);
@@ -1146,7 +1245,9 @@ process.on('SIGTERM', async () => {
 process.on('uncaughtException', async (error) => {
   console.error('💥 Erro não capturado:', error);
   try {
-    await client.$disconnect();
+    if (client) {
+      await client.$disconnect();
+    }
   } catch (e) {
     console.error('❌ Erro ao desconectar após exceção:', e);
   }
@@ -1156,7 +1257,9 @@ process.on('uncaughtException', async (error) => {
 process.on('unhandledRejection', async (reason, promise) => {
   console.error('💥 Promise rejeitada não tratada:', reason);
   try {
-    await client.$disconnect();
+    if (client) {
+      await client.$disconnect();
+    }
   } catch (e) {
     console.error('❌ Erro ao desconectar após rejeição:', e);
   }
