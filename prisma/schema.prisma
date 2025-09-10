@@ -1,11 +1,18 @@
-// prisma/schema.prisma - VERSÃO COMPLETA COM SISTEMA DE DEPÓSITOS NIVUSPAY
+// prisma/schema.prisma - VERSÃO CORRIGIDA PARA RESOLVER PROBLEMAS DE CONEXÃO
 generator client {
   provider = "prisma-client-js"
+  // Configurações para reduzir problemas de prepared statements
+  previewFeatures = ["postgresqlExtensions"]
+  binaryTargets = ["native"]
+  output = "../node_modules/.prisma/client"
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // Configurações específicas para Supabase/PostgreSQL
+  relationMode = "prisma"
+  extensions = [postgis]
 }
 
 // ============================================
@@ -45,6 +52,8 @@ model User {
   planPurchases        PlanPurchase[]
   
   @@map("users")
+  @@index([email])
+  @@index([createdAt])
 }
 
 // ============================================
@@ -74,6 +83,9 @@ model Book {
   updatedAt        DateTime @updatedAt
   
   @@map("books")
+  @@index([title])
+  @@index([active])
+  @@index([isInitialBook])
 }
 
 // ============================================
@@ -111,6 +123,11 @@ model Transaction {
   user                   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   @@map("transactions")
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@index([nivusPayCustomId])
 }
 
 model PlanPurchase {
@@ -138,6 +155,9 @@ model PlanPurchase {
   user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   @@map("plan_purchases")
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 // ============================================
