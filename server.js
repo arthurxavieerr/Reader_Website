@@ -1,4 +1,4 @@
-// server.js - VERSÃO COMPLETA CORRIGIDA SEM PREPARED STATEMENTS + CPF IMPLEMENTADO
+// server.js - VERSÃO COMPLETA CORRIGIDA SEM PREPARED STATEMENTS + CPF IMPLEMENTADO + QR CODE CORRIGIDO
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -120,6 +120,19 @@ const NIVUSPAY_CONFIG = {
   BASE_URL: 'https://pay.nivuspay.com.br/api/v1',
   SECRET_KEY: process.env.NIVUSPAY_SECRET_KEY || '58466d2b-7365-498f-9038-01fe2f537d1a'
 };
+
+// FUNÇÃO HELPER PARA CORRIGIR QR CODE BASE64 - CORRIGE A DUPLICAÇÃO
+function formatQrCodeBase64(pixQrCode) {
+  if (!pixQrCode) return null;
+  
+  // Se já começa com data:image, retorna como está
+  if (pixQrCode.startsWith('data:image/')) {
+    return pixQrCode;
+  }
+  
+  // Se não tem o prefixo, adiciona
+  return `data:image/png;base64,${pixQrCode}`;
+}
 
 // Função para criar transação PIX na Nivuspay - VERSÃO CORRIGIDA
 async function createNivusPayPixTransaction(amount, description, userId, customerData) {
@@ -258,8 +271,7 @@ async function createNivusPayPixTransaction(amount, description, userId, custome
             transactionId: retryData.id,
             customId: retryData.customId || customId,
             qrCode: retryData.pixCode || retryData.pixQrCode,
-            qrCodeBase64: retryData.pixQrCode ? 
-              `data:image/png;base64,${retryData.pixQrCode}` : null,
+            qrCodeBase64: formatQrCodeBase64(retryData.pixQrCode), // ✅ CORRIGIDO - USA A FUNÇÃO HELPER
             pixCopiaECola: retryData.pixCode,
             amount: amount,
             expiresAt: retryData.expiresAt || new Date(Date.now() + 15 * 60 * 1000).toISOString(),
@@ -289,7 +301,7 @@ async function createNivusPayPixTransaction(amount, description, userId, custome
       transactionId: data.id,
       customId: data.customId || customId,
       qrCode: data.pixCode || data.pixQrCode,
-      qrCodeBase64: data.pixQrCode ? `data:image/png;base64,${data.pixQrCode}` : null,
+      qrCodeBase64: formatQrCodeBase64(data.pixQrCode), // ✅ CORRIGIDO - USA A FUNÇÃO HELPER
       pixCopiaECola: data.pixCode,
       amount: amount,
       expiresAt: data.expiresAt || new Date(Date.now() + 15 * 60 * 1000).toISOString(),
@@ -426,7 +438,7 @@ function requireAdmin(req, res, next) {
 app.get('/health', async (req, res) => {
   res.json({ 
     success: true, 
-    status: 'API Online - CPF Implementado',
+    status: 'API Online - CPF Implementado - QR Code Corrigido',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
     port: process.env.PORT || 3001
@@ -441,7 +453,7 @@ app.get('/api/test', ensureConnection, async (req, res) => {
     
     res.json({ 
       success: true, 
-      message: 'API funcionando com CPF!',
+      message: 'API funcionando com CPF e QR Code corrigido!',
       data: { userCount, timestamp: new Date().toISOString() }
     });
   } catch (error) {
@@ -1453,10 +1465,11 @@ const PORT = process.env.PORT || 3001;
 
 app.listen(PORT, async () => {
   console.log('🎯 ====================================');
-  console.log(`🚀 SERVIDOR INICIADO - CPF IMPLEMENTADO (SEM PREPARED STATEMENTS)`);
+  console.log(`🚀 SERVIDOR INICIADO - CPF IMPLEMENTADO + QR CODE CORRIGIDO`);
   console.log(`📍 Porta: ${PORT}`);
   console.log(`🌍 Ambiente: ${process.env.NODE_ENV}`);
   console.log(`🆔 CPF: Obrigatório e funcional`);
+  console.log(`📱 QR Code: Prefixo base64 corrigido`);
   console.log(`🔗 Health: http://localhost:${PORT}/health`);
   console.log(`🔗 Test: http://localhost:${PORT}/api/test`);
   console.log('🎯 ====================================');
@@ -1464,7 +1477,7 @@ app.listen(PORT, async () => {
   // Inicializar Prisma
   try {
     await ensureFreshConnection();
-    console.log('🎉 Servidor pronto! CPF funcionando sem prepared statements.');
+    console.log('🎉 Servidor pronto! CPF funcionando + QR Code corrigido.');
   } catch (error) {
     console.error('❌ Erro na inicialização:', error);
   }
