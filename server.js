@@ -121,7 +121,7 @@ const NIVUSPAY_CONFIG = {
   SECRET_KEY: process.env.NIVUSPAY_SECRET_KEY || '58466d2b-7365-498f-9038-01fe2f537d1a'
 };
 
-// Função para criar transação PIX na Nivuspay usando CPF real - VERSÃO CORRIGIDA COM MÚLTIPLOS FORMATOS
+// Função para criar transação PIX na Nivuspay - VERSÃO CORRIGIDA
 async function createNivusPayPixTransaction(amount, description, userId, customerData) {
   try {
     console.log('🔄 Criando transação PIX na NivusPay...');
@@ -132,58 +132,40 @@ async function createNivusPayPixTransaction(amount, description, userId, custome
 
     const cleanedCPF = cleanCPF(customerData.cpf);
     
-    // FORMATAÇÃO ESPECÍFICA PARA NIVUSPAY - TESTANDO DIFERENTES FORMATOS
-    let formattedPhone = '+5516999999999'; // Telefone padrão com + como fallback
+    // Gerar ID customizado único
+    const customId = `deposit_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+    
+    // Formatação do telefone
+    let formattedPhone = '+5516999999999'; // Telefone padrão como fallback
     
     if (customerData.phone) {
       const cleanedPhone = customerData.phone.replace(/\D/g, '');
       console.log('🔍 Telefone original:', customerData.phone);
       console.log('🔍 Telefone limpo:', cleanedPhone);
       
-      // Tenta diferentes formatos que a NivusPay pode aceitar
       if (cleanedPhone.length >= 10) {
-        // Pega os últimos 11 dígitos se tiver mais que isso
-        const phoneDigits = cleanedPhone.length > 11 ? cleanedPhone.slice(-11) : cleanedPhone;
+        const phoneDigits = cleanedPhone.length > 11 ? 
+          cleanedPhone.slice(-11) : cleanedPhone;
         
-        // Tenta formato com +55 (formato internacional padrão)
         if (phoneDigits.length === 11) {
           formattedPhone = `+55${phoneDigits}`;
         } else if (phoneDigits.length === 10) {
-          // Adiciona o 9 para celular se tiver só 10 dígitos
-          const ddd = phoneDigits.substring(0, 2);
-          const number = phoneDigits.substring(2);
-          formattedPhone = `+55${ddd}9${number}`;
-        } else {
-          // Usa o que tiver
           formattedPhone = `+55${phoneDigits}`;
         }
       }
     }
-    
+
     console.log('📱 Telefone formatado final:', formattedPhone);
     
-    // Validar se tem o formato +55XXXXXXXXXXX (14 caracteres total)
-    if (!formattedPhone.match(/^\+55\d{10,11}$/)) {
-      console.log('⚠️ Formato inválido, testando sem +');
-      // Tenta sem o +
-      formattedPhone = formattedPhone.replace('+', '');
-      
-      if (!formattedPhone.match(/^55\d{10,11}$/)) {
-        console.log('⚠️ Ainda inválido, usando fallback');
-        formattedPhone = '+5516999999999';
-      }
-    }
-    
-    const customId = `deposit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Testa primeiro sem o + para ver se a API aceita
-    const phoneToSend = formattedPhone.startsWith('+') ? formattedPhone.substring(1) : formattedPhone;
+    // Preparar dados da requisição
+    const phoneToSend = formattedPhone.startsWith('+55') ? 
+      formattedPhone.substring(1) : formattedPhone;
     
     const requestData = {
       name: customerData.name,
       email: customerData.email,
       cpf: cleanedCPF,
-      phone: phoneToSend, // Enviando sem o +
+      phone: phoneToSend,
       paymentMethod: "PIX",
       amount: amount,
       traceable: true,
@@ -203,27 +185,46 @@ async function createNivusPayPixTransaction(amount, description, userId, custome
       phone: `${phoneToSend.substring(0, 4)}***${phoneToSend.substring(9)}`
     });
 
-    console.log('🔍 Testando com telefone sem +:', phoneToSend);
+    // Headers mais completos para evitar bloqueio
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': NIVUSPAY_CONFIG.SECRET_KEY,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Connection': 'keep-alive',
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'cross-site'
+    };
 
+    // Primeira tentativa
     const response = await fetch(`${NIVUSPAY_CONFIG.BASE_URL}/transaction.purchase`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': NIVUSPAY_CONFIG.SECRET_KEY
-      },
-      body: JSON.stringify(requestData)
+      headers: headers,
+      body: JSON.stringify(requestData),
+      timeout: 30000 // 30 segundos de timeout
     });
 
+    // Verificar se é a página de checkpoint do Vercel
+    const responseText = await response.text();
+    
+    if (responseText.includes('Vercel Security Checkpoint') || responseText.includes('We\'re verifying your browser')) {
+      console.log('❌ Bloqueado pelo Vercel Security Checkpoint');
+      throw new Error('A API da NivusPay está temporariamente inacessível devido a proteções de segurança. Tente novamente em alguns minutos.');
+    }
+
     if (!response.ok) {
-      const errorText = await response.text();
-      console.log('❌ NivusPay Response Error:', errorText);
+      console.log('❌ NivusPay Response Error:', responseText);
       
-      // Se ainda der erro, tenta com formato diferente
-      if (errorText.includes('phone') && phoneToSend.startsWith('55')) {
-        console.log('🔄 Tentando formato alternativo...');
+      // Tentar formato alternativo do telefone se o erro for relacionado ao telefone
+      if (responseText.includes('phone') || responseText.includes('telefone')) {
+        console.log('🔄 Tentando formato alternativo de telefone...');
         
-        // Tenta formato brasileiro puro (sem código do país)
-        const brazilianPhone = phoneToSend.substring(2); // Remove o 55
+        const brazilianPhone = phoneToSend.startsWith('55') ? 
+          phoneToSend.substring(2) : phoneToSend;
+        
         const alternativeData = {
           ...requestData,
           phone: brazilianPhone
@@ -233,38 +234,55 @@ async function createNivusPayPixTransaction(amount, description, userId, custome
         
         const retryResponse = await fetch(`${NIVUSPAY_CONFIG.BASE_URL}/transaction.purchase`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': NIVUSPAY_CONFIG.SECRET_KEY
-          },
-          body: JSON.stringify(alternativeData)
+          headers: headers,
+          body: JSON.stringify(alternativeData),
+          timeout: 30000
         });
         
-        if (!retryResponse.ok) {
-          const retryErrorText = await retryResponse.text();
-          console.log('❌ Erro na segunda tentativa:', retryErrorText);
-          throw new Error(`NivusPay API Error: ${retryResponse.status} - ${retryErrorText}`);
+        const retryResponseText = await retryResponse.text();
+        
+        if (retryResponseText.includes('Vercel Security Checkpoint')) {
+          throw new Error('A API da NivusPay está temporariamente inacessível devido a proteções de segurança. Tente novamente em alguns minutos.');
         }
         
-        const retryData = JSON.parse(await retryResponse.text());
-        console.log('✅ Transação criada na segunda tentativa:', retryData.id);
+        if (!retryResponse.ok) {
+          console.log('❌ Erro na segunda tentativa:', retryResponseText);
+          throw new Error(`NivusPay API Error: ${retryResponse.status} - ${retryResponseText}`);
+        }
         
-        return {
-          transactionId: retryData.id,
-          customId: retryData.customId || customId,
-          qrCode: retryData.pixCode || retryData.pixQrCode,
-          qrCodeBase64: retryData.pixQrCode ? `data:image/png;base64,${retryData.pixQrCode}` : null,
-          pixCopiaECola: retryData.pixCode,
-          amount: amount,
-          expiresAt: retryData.expiresAt || new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-          status: retryData.status || 'PENDING'
-        };
+        try {
+          const retryData = JSON.parse(retryResponseText);
+          console.log('✅ Transação criada na segunda tentativa:', retryData.id);
+          
+          return {
+            transactionId: retryData.id,
+            customId: retryData.customId || customId,
+            qrCode: retryData.pixCode || retryData.pixQrCode,
+            qrCodeBase64: retryData.pixQrCode ? 
+              `data:image/png;base64,${retryData.pixQrCode}` : null,
+            pixCopiaECola: retryData.pixCode,
+            amount: amount,
+            expiresAt: retryData.expiresAt || new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+            status: retryData.status || 'PENDING'
+          };
+        } catch (parseError) {
+          console.log('❌ Erro ao fazer parse da resposta da segunda tentativa');
+          throw new Error('Resposta inválida da API da NivusPay');
+        }
       }
       
-      throw new Error(`NivusPay API Error: ${response.status} - ${errorText}`);
+      throw new Error(`NivusPay API Error: ${response.status} - ${responseText}`);
     }
 
-    const data = JSON.parse(await response.text());
+    // Parse da resposta principal
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.log('❌ Erro ao fazer parse da resposta:', responseText.substring(0, 500));
+      throw new Error('Resposta inválida da API da NivusPay');
+    }
+
     console.log('✅ Transação criada na NivusPay:', data.id);
 
     return {
@@ -280,6 +298,13 @@ async function createNivusPayPixTransaction(amount, description, userId, custome
 
   } catch (error) {
     console.error('❌ Erro na criação da transação NivusPay:', error);
+    
+    // Se o erro for relacionado ao checkpoint de segurança, fornecer uma mensagem mais amigável
+    if (error.message.includes('Vercel Security Checkpoint') || 
+        error.message.includes('temporariamente inacessível')) {
+      throw new Error('O serviço de pagamentos está temporariamente indisponível. Tente novamente em alguns minutos.');
+    }
+    
     throw error;
   }
 }
