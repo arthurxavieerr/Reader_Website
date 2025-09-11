@@ -121,7 +121,7 @@ const NIVUSPAY_CONFIG = {
   SECRET_KEY: process.env.NIVUSPAY_SECRET_KEY || '58466d2b-7365-498f-9038-01fe2f537d1a'
 };
 
-// Função para criar transação PIX na Nivuspay usando CPF real
+// Função para criar transação PIX na Nivuspay usando CPF real - VERSÃO CORRIGIDA COM MÚLTIPLOS FORMATOS
 async function createNivusPayPixTransaction(amount, description, userId, customerData) {
   try {
     console.log('🔄 Criando transação PIX na NivusPay...');
@@ -131,15 +131,59 @@ async function createNivusPayPixTransaction(amount, description, userId, custome
     }
 
     const cleanedCPF = cleanCPF(customerData.cpf);
-    const cleanedPhone = customerData.phone ? customerData.phone.replace(/\D/g, '') : '16999999999';
-    const formattedPhone = cleanedPhone.startsWith('55') ? cleanedPhone : `55${cleanedPhone}`;
+    
+    // FORMATAÇÃO ESPECÍFICA PARA NIVUSPAY - TESTANDO DIFERENTES FORMATOS
+    let formattedPhone = '+5516999999999'; // Telefone padrão com + como fallback
+    
+    if (customerData.phone) {
+      const cleanedPhone = customerData.phone.replace(/\D/g, '');
+      console.log('🔍 Telefone original:', customerData.phone);
+      console.log('🔍 Telefone limpo:', cleanedPhone);
+      
+      // Tenta diferentes formatos que a NivusPay pode aceitar
+      if (cleanedPhone.length >= 10) {
+        // Pega os últimos 11 dígitos se tiver mais que isso
+        const phoneDigits = cleanedPhone.length > 11 ? cleanedPhone.slice(-11) : cleanedPhone;
+        
+        // Tenta formato com +55 (formato internacional padrão)
+        if (phoneDigits.length === 11) {
+          formattedPhone = `+55${phoneDigits}`;
+        } else if (phoneDigits.length === 10) {
+          // Adiciona o 9 para celular se tiver só 10 dígitos
+          const ddd = phoneDigits.substring(0, 2);
+          const number = phoneDigits.substring(2);
+          formattedPhone = `+55${ddd}9${number}`;
+        } else {
+          // Usa o que tiver
+          formattedPhone = `+55${phoneDigits}`;
+        }
+      }
+    }
+    
+    console.log('📱 Telefone formatado final:', formattedPhone);
+    
+    // Validar se tem o formato +55XXXXXXXXXXX (14 caracteres total)
+    if (!formattedPhone.match(/^\+55\d{10,11}$/)) {
+      console.log('⚠️ Formato inválido, testando sem +');
+      // Tenta sem o +
+      formattedPhone = formattedPhone.replace('+', '');
+      
+      if (!formattedPhone.match(/^55\d{10,11}$/)) {
+        console.log('⚠️ Ainda inválido, usando fallback');
+        formattedPhone = '+5516999999999';
+      }
+    }
+    
     const customId = `deposit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Testa primeiro sem o + para ver se a API aceita
+    const phoneToSend = formattedPhone.startsWith('+') ? formattedPhone.substring(1) : formattedPhone;
     
     const requestData = {
       name: customerData.name,
       email: customerData.email,
       cpf: cleanedCPF,
-      phone: formattedPhone,
+      phone: phoneToSend, // Enviando sem o +
       paymentMethod: "PIX",
       amount: amount,
       traceable: true,
@@ -153,10 +197,13 @@ async function createNivusPayPixTransaction(amount, description, userId, custome
       postbackUrl: `${process.env.APP_URL || 'http://localhost:3001'}/api/webhooks/nivuspay`
     };
 
-    console.log('📤 Enviando para NivusPay (CPF mascarado):', {
+    console.log('📤 Enviando para NivusPay (dados mascarados):', {
       ...requestData,
-      cpf: `${cleanedCPF.substring(0, 3)}***${cleanedCPF.substring(8)}`
+      cpf: `${cleanedCPF.substring(0, 3)}***${cleanedCPF.substring(8)}`,
+      phone: `${phoneToSend.substring(0, 4)}***${phoneToSend.substring(9)}`
     });
+
+    console.log('🔍 Testando com telefone sem +:', phoneToSend);
 
     const response = await fetch(`${NIVUSPAY_CONFIG.BASE_URL}/transaction.purchase`, {
       method: 'POST',
@@ -169,6 +216,51 @@ async function createNivusPayPixTransaction(amount, description, userId, custome
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.log('❌ NivusPay Response Error:', errorText);
+      
+      // Se ainda der erro, tenta com formato diferente
+      if (errorText.includes('phone') && phoneToSend.startsWith('55')) {
+        console.log('🔄 Tentando formato alternativo...');
+        
+        // Tenta formato brasileiro puro (sem código do país)
+        const brazilianPhone = phoneToSend.substring(2); // Remove o 55
+        const alternativeData = {
+          ...requestData,
+          phone: brazilianPhone
+        };
+        
+        console.log('🔍 Tentando telefone brasileiro puro:', brazilianPhone);
+        
+        const retryResponse = await fetch(`${NIVUSPAY_CONFIG.BASE_URL}/transaction.purchase`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': NIVUSPAY_CONFIG.SECRET_KEY
+          },
+          body: JSON.stringify(alternativeData)
+        });
+        
+        if (!retryResponse.ok) {
+          const retryErrorText = await retryResponse.text();
+          console.log('❌ Erro na segunda tentativa:', retryErrorText);
+          throw new Error(`NivusPay API Error: ${retryResponse.status} - ${retryErrorText}`);
+        }
+        
+        const retryData = JSON.parse(await retryResponse.text());
+        console.log('✅ Transação criada na segunda tentativa:', retryData.id);
+        
+        return {
+          transactionId: retryData.id,
+          customId: retryData.customId || customId,
+          qrCode: retryData.pixCode || retryData.pixQrCode,
+          qrCodeBase64: retryData.pixQrCode ? `data:image/png;base64,${retryData.pixQrCode}` : null,
+          pixCopiaECola: retryData.pixCode,
+          amount: amount,
+          expiresAt: retryData.expiresAt || new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          status: retryData.status || 'PENDING'
+        };
+      }
+      
       throw new Error(`NivusPay API Error: ${response.status} - ${errorText}`);
     }
 
@@ -522,11 +614,14 @@ app.patch('/api/auth/update-profile', ensureConnection, authenticateToken, async
 
       // Verificar se CPF já está em uso por outro usuário
       console.log('🔍 Verificando duplicata de CPF...');
-      const existingCPF = await client.$queryRaw`
-        SELECT id FROM users WHERE cpf = ${cleanedCPF} AND id != ${userId} LIMIT 1
-      `;
+      const existingCPF = await client.user.findFirst({
+        where: { 
+          cpf: cleanedCPF,
+          NOT: { id: userId }
+        }
+      });
 
-      if (existingCPF.length > 0) {
+      if (existingCPF) {
         console.log('❌ CPF já em uso');
         return res.status(409).json({ 
           success: false, 
