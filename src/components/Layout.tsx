@@ -23,9 +23,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       
       <BottomNavigation currentPath={location.pathname} />
       
-      {isConfigModalOpen && (
-        <ConfigModal onClose={() => setIsConfigModalOpen(false)} />
-      )}
+      <ConfigModal 
+        isOpen={isConfigModalOpen}
+        onClose={() => setIsConfigModalOpen(false)} 
+      />
       
       <style>{`
         .layout {

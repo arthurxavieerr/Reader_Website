@@ -486,34 +486,48 @@ app.get('/api/auth/me', ensureConnection, authenticateToken, async (req, res) =>
   }
 });
 
-// Atualização de perfil com CPF
+// Atualização de perfil com CPF - VERSÃO CORRIGIDA
 app.patch('/api/auth/update-profile', ensureConnection, authenticateToken, async (req, res) => {
   try {
+    console.log('🔄 Update profile request started');
+    console.log('🔍 Request body:', { ...req.body, cpf: req.body.cpf ? '[CPF_PROVIDED]' : undefined });
+    
     const { name, phone, cpf } = req.body;
     const userId = req.user.userId;
 
-    if (name !== undefined && !name.trim()) {
+    console.log('🔍 User ID from token:', userId);
+
+    // Validação de nome
+    if (name !== undefined && (!name || !name.trim())) {
+      console.log('❌ Nome vazio rejeitado');
       return res.status(400).json({ 
         success: false, 
         error: 'Nome não pode estar vazio' 
       });
     }
 
-    if (cpf !== undefined && cpf) {
-      const cleanedCPF = cleanCPF(cpf);
+    // Validação de CPF se fornecido
+    let cleanedCPF = null;
+    if (cpf !== undefined && cpf && cpf.trim()) {
+      cleanedCPF = cleanCPF(cpf);
+      console.log('🔍 CPF processado');
+      
       if (!validateCPF(cleanedCPF)) {
+        console.log('❌ CPF inválido');
         return res.status(400).json({ 
           success: false, 
           error: 'CPF inválido' 
         });
       }
 
-      // Verificar se CPF já está em uso
+      // Verificar se CPF já está em uso por outro usuário
+      console.log('🔍 Verificando duplicata de CPF...');
       const existingCPF = await client.$queryRaw`
         SELECT id FROM users WHERE cpf = ${cleanedCPF} AND id != ${userId} LIMIT 1
       `;
 
       if (existingCPF.length > 0) {
+        console.log('❌ CPF já em uso');
         return res.status(409).json({ 
           success: false, 
           error: 'CPF já está em uso por outro usuário' 
@@ -521,28 +535,70 @@ app.patch('/api/auth/update-profile', ensureConnection, authenticateToken, async
       }
     }
 
-    // Executar usando queryRaw com valores seguros
-    const updatedUsers = await client.$queryRaw`
-      UPDATE users 
-      SET 
-        name = COALESCE(${name?.trim() || null}, name),
-        phone = COALESCE(${phone?.trim() || null}, phone),
-        cpf = COALESCE(${cpf ? cleanCPF(cpf) : null}, cpf),
-        "updatedAt" = NOW()
-      WHERE id = ${userId}
-      RETURNING *
-    `;
+    // Preparar dados para update usando Prisma client normal (mais confiável)
+    const updateData = {
+      updatedAt: new Date()
+    };
 
-    if (updatedUsers.length === 0) {
-      return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
+    if (name !== undefined) {
+      updateData.name = name.trim();
     }
 
-    const publicUser = toPublicUser(updatedUsers[0]);
+    if (phone !== undefined) {
+      updateData.phone = phone && phone.trim() ? phone.trim() : null;
+    }
+
+    if (cpf !== undefined) {
+      updateData.cpf = cleanedCPF;
+    }
+
+    console.log('🔄 Executando update com dados:', { 
+      ...updateData, 
+      cpf: updateData.cpf ? '[CPF_UPDATED]' : updateData.cpf 
+    });
+
+    // Executar update usando Prisma client normal (mais estável que queryRaw)
+    const updatedUser = await client.user.update({
+      where: { id: userId },
+      data: updateData
+    });
+
+    console.log('✅ Update executado com sucesso');
+
+    const publicUser = toPublicUser(updatedUser);
+    console.log('✅ Profile updated successfully for user:', userId);
+    
     res.json({ success: true, data: { user: publicUser } });
 
   } catch (error) {
     console.error('❌ Update profile error:', error);
-    res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+    console.error('❌ Error details:', {
+      message: error.message,
+      code: error.code,
+      meta: error.meta
+    });
+
+    // Tratamento específico para erros do Prisma
+    if (error.code === 'P2025') {
+      return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
+    }
+    
+    if (error.code === 'P2002') {
+      const target = error.meta?.target;
+      if (target && target.includes('cpf')) {
+        return res.status(409).json({ success: false, error: 'CPF já está em uso por outro usuário' });
+      }
+      if (target && target.includes('email')) {
+        return res.status(409).json({ success: false, error: 'Email já está em uso por outro usuário' });
+      }
+      return res.status(409).json({ success: false, error: 'Dados já em uso por outro usuário' });
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro interno do servidor',
+      details: isDebug ? error.message : undefined
+    });
   }
 });
 
